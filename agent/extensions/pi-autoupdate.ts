@@ -14,8 +14,9 @@
  * nor update them — which is exactly why the previous version reported
  * "extensions current" while pi's own banner said an update was available.
  *
- * Pi already exposes the correct operation as a CLI subcommand:
- *   pi update                 → update pi, update packages, reconcile git refs
+ * Pi already exposes the correct operations as CLI subcommands:
+ *   pi update --all           → update pi, update packages, reconcile git refs
+ *   pi update                 → update pi only
  *   pi update --extensions    → update packages + reconcile git refs only
  *   pi update --self          → update pi only
  *   pi update --self --force  → reinstall pi even if current
@@ -122,8 +123,9 @@ export default function (pi: ExtensionAPI) {
       if (force) args.push("--force");
     } else if (scope === "extensions") {
       args.push("--extensions");
+    } else if (scope === "all") {
+      args.push("--all");
     }
-    // scope === "all" → bare `pi update` (pi + packages + git reconcile).
     return args;
   }
 
@@ -388,7 +390,7 @@ export default function (pi: ExtensionAPI) {
 
   /* ────────────────────────────────────────────
    * Command: /update
-   *   /update                  → pi + packages
+   *   /update                  → pi + packages (`pi update --all`)
    *   /update self             → pi only
    *   /update extensions       → packages only
    *   /update check            → check pi (self) only, no install

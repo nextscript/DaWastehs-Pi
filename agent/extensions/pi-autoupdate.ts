@@ -597,6 +597,188 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  /* ────────────────────────────────────────────────────
+   * Upstream-publish-bug resilience
+   *
+   * Some npm packages get published with unresolved `workspace:*` dependency
+   * specifiers — a pnpm/yarn monorepo protocol that plain npm cannot resolve.
+   * When that happens, `npm install <pkg>@latest` inside `pi update` fails with
+   * `EUNSUPPORTEDPROTOCOL ... "workspace:"`, which aborts the WHOLE package
+   * update: one broken upstream release blocks every other package too.
+   *
+   * To keep `/update` working we pre-flight the latest version of each declared
+   * npm package against the public registry. Any package whose latest version
+   * still carries a `workspace:` dependency is treated as "do not update": we
+   * update the remaining packages individually (`pi update npm:<pkg>`) and skip
+   * the broken one, keeping its currently-installed (good) version. This is
+   * self-healing — once the author publishes a fixed version the pre-flight
+   * finds nothing broken and the normal bulk update resumes automatically.
+   * The pre-flight is fail-open: a flaky/offline/custom registry never blocks
+   * updates (we just fall through to the normal bulk path in that case).
+   * ──────────────────────────────────────────────────── */
+
+  const NPM_REGISTRY_BASE = "https://registry.npmjs.org";
+
+  /** All declared package specs (e.g. `npm:@scope/pkg`, `git:...`) from user + project settings. */
+  async function declaredPackageSpecs(cwd: string): Promise<string[]> {
+    const specs = new Set<string>();
+    const paths = [join(getAgentDir(), "settings.json"), join(cwd, ".pi", "settings.json")];
+    for (const settingsPath of paths) {
+      const s = await readJsonObject(settingsPath);
+      const pkgs = Array.isArray(s.packages) ? s.packages : [];
+      for (const spec of pkgs) if (typeof spec === "string") specs.add(spec);
+    }
+    return [...specs];
+  }
+
+  /** Extract the bare package name from an `npm:` spec (strips any `@version`). */
+  function npmSpecToName(spec: string): string | null {
+    if (!spec.startsWith("npm:")) return null;
+    const rest = spec.slice("npm:".length);
+    // Scoped names start with '@'; their version separator is the SECOND '@'.
+    const at = rest.startsWith("@") ? rest.indexOf("@", 1) : rest.indexOf("@");
+    const name = at > 0 ? rest.slice(0, at) : rest;
+    return name || null;
+  }
+
+  /** Latest-version metadata for an npm package from the public registry (null on any error). */
+  async function fetchLatestPackageMeta(
+    pkgName: string,
+  ): Promise<{ version: string; deps: Record<string, string> } | null> {
+    try {
+      const res = await fetch(`${NPM_REGISTRY_BASE}/${pkgName}/latest`, {
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        version?: string;
+        dependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      if (!json.version) return null;
+      const deps = {
+        ...(json.dependencies ?? {}),
+        ...(json.optionalDependencies ?? {}),
+        ...(json.peerDependencies ?? {}),
+      };
+      return { version: json.version, deps };
+    } catch {
+      return null; // fail-open
+    }
+  }
+
+  /** Detect declared npm packages whose latest version is unresolvable by npm (workspace: protocol). */
+  async function detectBrokenNpmUpdates(
+    npmNames: string[],
+  ): Promise<Map<string, { latest: string; badDeps: string[] }>> {
+    const broken = new Map<string, { latest: string; badDeps: string[] }>();
+    const checked = await Promise.all(
+      npmNames.map(async (name) => {
+        const meta = await fetchLatestPackageMeta(name);
+        if (!meta) return null;
+        const bad = Object.entries(meta.deps)
+          .filter(([, v]) => typeof v === "string" && v.startsWith("workspace:"))
+          .map(([k, v]) => `${k}@${v}`);
+        return bad.length ? { name, latest: meta.version, bad } : null;
+      }),
+    );
+    for (const r of checked) if (r) broken.set(r.name, { latest: r.latest, badDeps: r.bad });
+    return broken;
+  }
+
+  /** Human-readable notice listing packages skipped because their latest version is unresolvable. */
+  function brokenPackagesNotice(
+    broken: Map<string, { latest: string; badDeps: string[] }>,
+    skippedGitReconcile: boolean,
+  ): string {
+    if (broken.size === 0) return "";
+    const lines = [...broken.entries()].map(
+      ([pkg, info]) =>
+        `  • ${pkg}@${info.latest} → unresolved ${info.badDeps.join(", ")} (upstream publish bug). Skipped; keeping installed version. Auto-resumes once a fixed version is published.`,
+    );
+    const tail = skippedGitReconcile
+      ? "\nℹ️  Git-sourced packages are not reconciled during this fallback run; re-run `/update` after the broken package is fixed."
+      : "";
+    return `⚠️  Skipped ${broken.size} package(s) whose latest npm version npm cannot install:\n${lines.join("\n")}${tail}`;
+  }
+
+  /** Update each declared npm package individually, skipping the broken set. */
+  async function runPerPackageNpmUpdates(
+    npmNames: string[],
+    skip: Set<string>,
+  ): Promise<{ success: boolean; output: string }> {
+    const targets = npmNames.filter((p) => !skip.has(p));
+    if (targets.length === 0) {
+      return { success: true, output: "(no npm packages to update after skipping broken ones)" };
+    }
+    const sections: string[] = [];
+    let success = true;
+    for (const name of targets) {
+      const r = await runPi(["update", `npm:${name}`]);
+      success = success && r.success;
+      sections.push(`npm:${name}:\n${r.output || "(no output)"}`);
+    }
+    return { success, output: sections.join("\n\n") };
+  }
+
+  /** Hint appended when npm itself rejects a `workspace:` specifier (defense in depth). */
+  function upstreamBugHint(output: string): string {
+    if (/EUNSUPPORTEDPROTOCOL|"workspace:"|Unsupported URL Type "workspace:"/.test(output)) {
+      return (
+        "\n\nℹ️  This is an upstream publish bug: a package was published to npm with an unresolved " +
+        "`workspace:*` dependency, which npm cannot install. The update pre-flight normally skips such " +
+        "packages automatically; if it recurred here (e.g. offline, stale cache, or a custom npm registry), " +
+        "find the culprit with `npm view <pkg>@latest dependencies` and re-run `/update`."
+      );
+    }
+    return "";
+  }
+
+  /**
+   * Run the update for a scope, transparently routing around npm packages whose
+   * latest version is unresolvable (workspace: protocol). The common case (no
+   * broken packages) is unchanged: a single `pi update --all` / `--extensions`.
+   * Only when a broken latest is detected do we fall back to per-package updates.
+   */
+  async function runScopedUpdate(
+    scope: UpdateScope,
+    force: boolean,
+    cwd: string,
+  ): Promise<{ success: boolean; output: string; brokenNotice: string }> {
+    if (scope === "self") {
+      const r = await runPi(updateArgs(scope, force));
+      return { success: r.success, output: r.output + upstreamBugHint(r.output), brokenNotice: "" };
+    }
+
+    const specs = await declaredPackageSpecs(cwd);
+    const npmNames = [...new Set(specs.map(npmSpecToName).filter((n): n is string => !!n))];
+    const hasNonNpm = specs.some((s) => !s.startsWith("npm:"));
+    const broken = await detectBrokenNpmUpdates(npmNames);
+    const brokenNotice = brokenPackagesNotice(broken, broken.size > 0 && hasNonNpm);
+
+    // Common path: nothing broken → one bulk command, exactly like before.
+    if (broken.size === 0) {
+      const bulkArgs = scope === "all" ? ["update", "--all"] : ["update", "--extensions"];
+      const r = await runPi(bulkArgs);
+      return { success: r.success, output: r.output + upstreamBugHint(r.output), brokenNotice: "" };
+    }
+
+    // Broken package(s) detected → update pi self (for "all") + each good npm package individually.
+    const parts: string[] = [];
+    let success = true;
+    if (scope === "all") {
+      const selfR = await runPi(["update", "--self"]);
+      success = success && selfR.success;
+      if (selfR.output) parts.push(selfR.output);
+    }
+    const pkgR = await runPerPackageNpmUpdates(npmNames, new Set(broken.keys()));
+    success = success && pkgR.success;
+    if (pkgR.output) parts.push(pkgR.output);
+    const combined = parts.join("\n\n");
+    return { success, output: combined + upstreamBugHint(combined), brokenNotice };
+  }
+
   /* ────────────────────────────────────────────
    * Tool: pi_update
    * ──────────────────────────────────────────── */
@@ -608,6 +790,7 @@ export default function (pi: ExtensionAPI) {
       "Update pi and/or its installed packages (extensions, skills, prompts, themes) via the pi CLI. " +
       "`scope` selects what to update: 'all' (default) updates pi and packages, 'self' only pi, " +
       "'extensions' only packages. After package updates, pi-llama-cpp is reset to http://127.0.0.1:1234, @xynogen/pix-pretty is refreshed if pix-optimizer needs its icon catalog, and known overwritten local package patches are re-applied. " +
+      "Packages whose latest npm version is unresolvable by npm (e.g. published with an unresolved `workspace:*` dependency) are detected via a registry pre-flight and skipped, updating the rest individually, so a single broken upstream release never blocks other updates. " +
       "`check=true` reports whether a pi update is available without installing (package update availability is " +
       "surfaced by pi at startup; there is no dry-run for it). `confirm=false` skips the confirmation dialog. " +
       "`force` reinstalls pi even if current (scope 'self' only).",
@@ -680,14 +863,15 @@ export default function (pi: ExtensionAPI) {
 
       // ── Run ──────────────────────────────────────────────────────────────
       ctx.ui.setStatus("pi-update", `Updating ${scopeLabel(scope)}…`);
-      const result = await runPi(args);
+      const result = await runScopedUpdate(scope, force, ctx.cwd);
       const postUpdate = scope !== "self" ? await ensurePostUpdatePackagePatches(ctx.cwd) : null;
       ctx.ui.setStatus(
         "pi-update",
         result.success ? (postUpdate && !postUpdate.ok ? "Update complete; post-update patch failed!" : "Update complete!") : "Update failed!",
       );
 
-      const body = result.output || "(no output)";
+      const notice = result.brokenNotice ? `${result.brokenNotice}\n\n` : "";
+      const body = notice + (result.output || "(no output)");
       const postUpdateText = postUpdate ? `\n\nPost-update package fixes:\n${postUpdate.text}` : "";
 
       if (!result.success) {
@@ -747,19 +931,20 @@ export default function (pi: ExtensionAPI) {
       }
 
       ctx.ui.setStatus("pi-update", `Updating ${scopeLabel(scope)}…`);
-      const result = await runPi(args);
+      const result = await runScopedUpdate(scope, false, ctx.cwd);
       const postUpdate = scope !== "self" ? await ensurePostUpdatePackagePatches(ctx.cwd) : null;
       ctx.ui.setStatus(
         "pi-update",
         result.success ? (postUpdate && !postUpdate.ok ? "Done; post-update patch failed!" : "Done!") : "Failed!",
       );
 
+      const notice = result.brokenNotice ? `${result.brokenNotice}\n\n` : "";
       const postUpdateText = postUpdate ? `\n\n${postUpdate.text}` : "";
       if (result.success) {
-        ctx.ui.notify(`✅ Update finished.${postUpdateText}\n\nRestart pi to load new versions.`, postUpdate && !postUpdate.ok ? "warning" : "info");
+        ctx.ui.notify(`✅ Update finished.\n\n${notice}${result.output || ""}${postUpdateText}\n\nRestart pi to load new versions.`, postUpdate && !postUpdate.ok ? "warning" : "info");
       } else {
-        ctx.ui.notify(`❌ Update failed:\n${(result.output + postUpdateText).slice(0, 1200)}`, "error");
-      }
+        ctx.ui.notify(`❌ Update failed:\n${notice}${(result.output + postUpdateText).slice(0, 1200)}`, "error");
+     }
     },
   });
 }

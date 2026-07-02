@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.80.2",
+  "lastChangelogVersion": "0.80.3",
   "defaultProvider": "zai",
   "defaultModel": "glm-5.2",
   "llamaServerUrl": "http://127.0.0.1:1234",
@@ -13,7 +13,10 @@
     "npm:@juicesharp/rpiv-i18n",
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:@gaodes/pi-graphify",
-    "npm:@xynogen/pix-optimizer"
+    "npm:@xynogen/pix-optimizer",
+    "npm:pi-subagents",
+    "npm:pi-intercom",
+    "npm:pi-prompt-template-model"
   ],
   "compaction": {
     "enabled": true,

@@ -53,6 +53,25 @@ Tool (`pi_update`, callable by the model):
 Version-pinned npm specs and pinned git refs are skipped automatically by
 `pi update`, so the extension does not special-case them.
 
+#### Upstream-publish-bug resilience
+
+Occasionally a package is published to npm with an unresolved `workspace:*`
+dependency (a pnpm/yarn monorepo protocol that plain npm cannot resolve). When
+that happens, `pi update`'s internal `npm install …@latest` fails with
+`EUNSUPPORTEDPROTOCOL`, which aborts the **entire** package update — so one
+broken upstream release blocks every other package too.
+
+Before running `pi update`, the extension pre-flights the latest version of
+each declared npm package against the public registry. Any package whose latest
+version still carries a `workspace:` dependency is treated as "do not update":
+the extension updates the remaining packages individually (`pi update
+npm:<pkg>`) and skips the broken one, keeping its currently-installed (good)
+version. This is self-healing — once the author publishes a fixed version the
+pre-flight finds nothing broken and the normal bulk update resumes. The
+pre-flight is fail-open (offline / custom-registry / errors never block
+updates). It was added after `@xynogen/pix-optimizer@1.1.14` shipped
+`"@xynogen/pix-data": "workspace:*"`.
+
 ### `stargate-header.ts`
 
 Replaces the startup header with an open Stargate Command console banner

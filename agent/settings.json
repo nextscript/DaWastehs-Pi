@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.80.3",
-  "defaultProvider": "zai",
-  "defaultModel": "glm-5.2",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
   "llamaServerUrl": "http://127.0.0.1:1234",
   "packages": [
     "npm:pi-llama-cpp",
@@ -37,35 +37,51 @@
     "agentOverrides": {
       "oracle": {
         "model": "zai/glm-5.2",
-        "fallbackModels": ["llama-server=http://127.0.0.1:1234/ornith-1.0-35b"]
+        "fallbackModels": [
+          "llama-server=http://127.0.0.1:1234/ornith-1.0-35b"
+        ]
       },
       "planner": {
         "model": "zai/glm-5.2",
-        "fallbackModels": ["llama-server=http://127.0.0.1:1234/ornith-1.0-35b"]
+        "fallbackModels": [
+          "llama-server=http://127.0.0.1:1234/ornith-1.0-35b"
+        ]
       },
       "worker": {
         "model": "zai/glm-5.2",
-        "fallbackModels": ["llama-server=http://127.0.0.1:1234/ornith-1.0-35b"]
+        "fallbackModels": [
+          "llama-server=http://127.0.0.1:1234/ornith-1.0-35b"
+        ]
       },
       "scout": {
         "model": "llama-server=http://127.0.0.1:1234/ornith-1.0-35b",
-        "fallbackModels": ["zai/glm-5.2"]
+        "fallbackModels": [
+          "zai/glm-5.2"
+        ]
       },
       "reviewer": {
         "model": "llama-server=http://127.0.0.1:1234/ornith-1.0-35b",
-        "fallbackModels": ["zai/glm-5.2"]
+        "fallbackModels": [
+          "zai/glm-5.2"
+        ]
       },
       "researcher": {
         "model": "llama-server=http://127.0.0.1:1234/ornith-1.0-35b",
-        "fallbackModels": ["zai/glm-5.2"]
+        "fallbackModels": [
+          "zai/glm-5.2"
+        ]
       },
       "context-builder": {
         "model": "llama-server=http://127.0.0.1:1234/ornith-1.0-35b",
-        "fallbackModels": ["zai/glm-5.2"]
+        "fallbackModels": [
+          "zai/glm-5.2"
+        ]
       },
       "delegate": {
         "model": "llama-server=http://127.0.0.1:1234/ornith-1.0-35b",
-        "fallbackModels": ["zai/glm-5.2"]
+        "fallbackModels": [
+          "zai/glm-5.2"
+        ]
       }
     }
   }

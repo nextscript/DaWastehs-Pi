@@ -46,13 +46,14 @@ const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
 const LLAMA_CPP_PACKAGE_NAME = "pi-llama-cpp";
 const LLAMA_SERVER_URL = "http://127.0.0.1:1234";
 const HERMES_MEMORY_PACKAGE_NAME = "pi-hermes-memory";
+const HEIMDALL_PACKAGE_NAME = "@casualjim/pi-heimdall";
 const PIX_OPTIMIZER_PACKAGE_PATH = ["@xynogen", "pix-optimizer"];
 const PIX_PRETTY_PACKAGE_PATH = ["@xynogen", "pix-pretty"];
 
 /** What to update. Maps directly onto `pi update` flags. */
 type UpdateScope = "all" | "self" | "extensions";
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
   /* ────────────────────────────────────────────
    * Self-version check (used only for the non-mutating `check` mode and for
    * the confirmation text). The actual update is always done by `pi update`.
@@ -552,14 +553,59 @@ export default function (pi: ExtensionAPI) {
     return { ok, text: messages.join("\n") };
   }
 
+  function desiredHeimdallSandboxEnabled(): boolean {
+    return process.platform === "linux";
+  }
+
+  function platformLabel(): string {
+    return process.platform === "win32" ? "Windows" : process.platform === "linux" ? "Linux" : process.platform;
+  }
+
+  /** Keep Heimdall's Linux-only sandbox aligned with the current OS. */
+  async function ensureHeimdallSandboxForPlatform(): Promise<{ ok: boolean; text: string }> {
+    const configPath = join(getAgentDir(), "heimdall.json");
+    const enabled = desiredHeimdallSandboxEnabled();
+    const state = enabled ? "enabled" : "disabled";
+    const platform = platformLabel();
+
+    try {
+      const config = await readJsonObject(configPath);
+      const existingSandbox = config.sandbox;
+      const sandbox =
+        existingSandbox && typeof existingSandbox === "object" && !Array.isArray(existingSandbox)
+          ? { ...(existingSandbox as Record<string, unknown>) }
+          : {};
+
+      if (sandbox.enabled === enabled) {
+        return { ok: true, text: `✅ Heimdall sandbox already ${state} on ${platform}.` };
+      }
+
+      sandbox.enabled = enabled;
+      config.sandbox = sandbox;
+      await mkdir(dirname(configPath), { recursive: true });
+      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      return { ok: true, text: `✅ Set Heimdall sandbox ${state} on ${platform} (${configPath}).` };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        text: `⚠️ Could not set Heimdall sandbox for ${platform} at ${configPath}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Run once during extension startup so pi-heimdall sees the OS-specific value
+  // before its session_start handler reads ~/.pi/agent/heimdall.json.
+  await ensureHeimdallSandboxForPlatform();
+
   async function ensurePostUpdatePackagePatches(cwd: string): Promise<{ ok: boolean; text: string }> {
     const llama = await ensureLlamaCppPort1234(cwd);
     const pixPretty = await ensurePixPrettyIconCatalog(cwd);
     const pix = await ensurePixOptimizerRtkPatch(cwd);
     const hermes = await ensureHermesBackfillPatch(cwd);
+    const heimdall = await ensureHeimdallSandboxForPlatform();
     return {
-      ok: llama.ok && pixPretty.ok && pix.ok && hermes.ok,
-      text: `${LLAMA_CPP_PACKAGE_NAME}:\n${llama.text}\n\n@xynogen/pix-pretty:\n${pixPretty.text}\n\n@xynogen/pix-optimizer:\n${pix.text}\n\n${HERMES_MEMORY_PACKAGE_NAME}:\n${hermes.text}`,
+      ok: llama.ok && pixPretty.ok && pix.ok && hermes.ok && heimdall.ok,
+      text: `${LLAMA_CPP_PACKAGE_NAME}:\n${llama.text}\n\n@xynogen/pix-pretty:\n${pixPretty.text}\n\n@xynogen/pix-optimizer:\n${pix.text}\n\n${HERMES_MEMORY_PACKAGE_NAME}:\n${hermes.text}\n\n${HEIMDALL_PACKAGE_NAME}:\n${heimdall.text}`,
     };
   }
 
@@ -789,7 +835,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Update pi and/or its installed packages (extensions, skills, prompts, themes) via the pi CLI. " +
       "`scope` selects what to update: 'all' (default) updates pi and packages, 'self' only pi, " +
-      "'extensions' only packages. After package updates, pi-llama-cpp is reset to http://127.0.0.1:1234, @xynogen/pix-pretty is refreshed if pix-optimizer needs its icon catalog, and known overwritten local package patches are re-applied. " +
+      "'extensions' only packages. After package updates, pi-llama-cpp is reset to http://127.0.0.1:1234, @xynogen/pix-pretty is refreshed if pix-optimizer needs its icon catalog, the Heimdall sandbox is enabled on Linux and disabled on Windows/non-Linux, and known overwritten local package patches are re-applied. " +
       "Packages whose latest npm version is unresolvable by npm (e.g. published with an unresolved `workspace:*` dependency) are detected via a registry pre-flight and skipped, updating the rest individually, so a single broken upstream release never blocks other updates. " +
       "`check=true` reports whether a pi update is available without installing (package update availability is " +
       "surfaced by pi at startup; there is no dry-run for it). `confirm=false` skips the confirmation dialog. " +
@@ -853,7 +899,7 @@ export default function (pi: ExtensionAPI) {
           "Pi Update",
           `Update ${scopeLabel(scope)}?\n\nThis runs: ${["pi", ...args].join(" ")}` +
             `${scope !== "self" ? "\n\nPi will update outdated packages and reconcile pinned git refs." : ""}` +
-            `${scope !== "self" ? `\nAfterwards, ${LLAMA_CPP_PACKAGE_NAME} will be reset to ${LLAMA_SERVER_URL}, pix-pretty/pix-optimizer compatibility will be checked, and known local patches re-applied.` : ""}` +
+            `${scope !== "self" ? `\nAfterwards, ${LLAMA_CPP_PACKAGE_NAME} will be reset to ${LLAMA_SERVER_URL}, pix-pretty/pix-optimizer compatibility will be checked, the Heimdall sandbox will be ${desiredHeimdallSandboxEnabled() ? "enabled" : "disabled"} for ${platformLabel()}, and known local patches re-applied.` : ""}` +
             piHint,
         );
         if (!confirmed) {
@@ -923,7 +969,7 @@ export default function (pi: ExtensionAPI) {
       const confirmed = await ctx.ui.confirm(
         "Pi Update",
         `Update ${scopeLabel(scope)} now?\n\nRuns: ${["pi", ...args].join(" ")}` +
-          `${scope !== "self" ? `\n\nAfterwards, ${LLAMA_CPP_PACKAGE_NAME} will be reset to ${LLAMA_SERVER_URL}, pix-pretty/pix-optimizer compatibility will be checked, and known local patches re-applied.` : ""}`,
+          `${scope !== "self" ? `\n\nAfterwards, ${LLAMA_CPP_PACKAGE_NAME} will be reset to ${LLAMA_SERVER_URL}, pix-pretty/pix-optimizer compatibility will be checked, the Heimdall sandbox will be ${desiredHeimdallSandboxEnabled() ? "enabled" : "disabled"} for ${platformLabel()}, and known local patches re-applied.` : ""}`,
       );
       if (!confirmed) {
         ctx.ui.notify("Update cancelled.", "info");

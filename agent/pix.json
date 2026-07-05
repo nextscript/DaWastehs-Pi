@@ -1,0 +1,38 @@
+{
+  "collapse": {
+    "enabled": true,
+    "delaySec": 10,
+    "tools": {}
+  },
+  "pretty": {
+    "icons": "nerd",
+    "lsStyle": "grid",
+    "maxPreviewLines": 80,
+    "maxRenderLines": 150,
+    "maxHighlightChars": 80000,
+    "cacheLimit": 128,
+    "diff": {
+      "splitMinWidth": 150,
+      "splitMinCodeWidth": 60,
+      "bgAdd": "#163826",
+      "bgDel": "#2d1919",
+      "bgAddHighlight": "#234b32",
+      "bgDelHighlight": "#502323",
+      "bgGutterAdd": "#12201a",
+      "bgGutterDel": "#261616",
+      "fgAdd": "#64b478",
+      "fgDel": "#c86464"
+    }
+  },
+  "optimizer": {
+    "caveman": "off",
+    "rtk": "off",
+    "toon": "off",
+    "ponytail": "off"
+  },
+  "gate": {
+    "disableDefaults": false,
+    "autoApprove": [],
+    "extraRules": []
+  }
+}

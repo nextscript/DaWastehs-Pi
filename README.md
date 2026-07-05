@@ -12,9 +12,14 @@ theme, three local TypeScript extensions, and a few installed pi packages.
 ├── README.md                  # this file
 ├── agent/
 │   ├── settings.json          # global settings (provider, model, packages, theme)
+│   ├── pix.json               # pix extension state/config
+│   ├── npm/
+│   │   ├── package.json       # installed pi package manifest
+│   │   └── package-lock.json  # installed pi package lockfile
 │   ├── package.json           # editor-only devDependencies (see "Editor setup")
 │   ├── tsconfig.json          # editor-only TS config (see "Editor setup")
 │   └── extensions/            # auto-discovered local extensions (*.ts)
+│       ├── alarm-sound.ts
 │       ├── pi-autoupdate.ts
 │       ├── stargate-header.ts
 │       └── token-speed.ts
@@ -99,8 +104,9 @@ for details:
 - `npm:pi-mcp-adapter` — MCP server adapter
 - `npm:pi-web-access` — web access tools
 
-Other packages may be installed at the user level (for example a guard
-extension and a memory extension shown in the startup banner).
+The current installed package manifest is also tracked in
+`agent/npm/package.json` / `agent/npm/package-lock.json` so the repository
+reflects the package set managed by `pi update`.
 
 ## Theme
 

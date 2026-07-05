@@ -1,6 +1,1 @@
-{
-  "sandbox": {
-    "enabled": false
-  },
-  "disabled": []
-}
+{"sandbox": {"enabled": true}}

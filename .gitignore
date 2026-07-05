@@ -8,6 +8,9 @@ settings.json
 # --- Dependencies ---
 node_modules/
 npm/
+!agent/npm/
+!agent/npm/package.json
+!agent/npm/package-lock.json
 bin/
 
 # --- Pi runtime / local state ---

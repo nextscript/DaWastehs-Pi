@@ -29,7 +29,7 @@
     "medium": 32768,
     "high": 65536
   },
-  "defaultThinkingLevel": "xhigh",
+  "defaultThinkingLevel": "high",
   "theme": "stargate-sg1",
   "httpIdleTimeoutMs": 0,
   "subagents": {

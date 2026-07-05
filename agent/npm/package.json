@@ -1,0 +1,19 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@casualjim/pi-heimdall": "^0.2.10",
+    "@gaodes/pi-graphify": "^0.2.2",
+    "@juicesharp/rpiv-ask-user-question": "^1.20.0",
+    "@juicesharp/rpiv-i18n": "^1.20.0",
+    "@juicesharp/rpiv-todo": "^1.20.0",
+    "@xynogen/pix-optimizer": "^1.1.16",
+    "pi-hermes-memory": "^0.7.23",
+    "pi-intercom": "^0.6.0",
+    "pi-llama-cpp": "^0.8.1",
+    "pi-mcp-adapter": "^2.11.0",
+    "pi-prompt-template-model": "^0.10.0",
+    "pi-subagents": "^0.33.1",
+    "pi-web-access": "^0.13.0"
+  }
+}

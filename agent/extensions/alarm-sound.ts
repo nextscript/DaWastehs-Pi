@@ -2,14 +2,17 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentEndEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const ALARM_PATH = join(homedir(), ".pi", "agent", "extensions", "audio", "alarm.mp3");
 const ALARM_VOLUME = 30;
 const ALARM_TIMEOUT_MS = 30_000;
 const USER_INPUT_TOOL_NAMES = new Set(["ask_user_question"]);
 
+type AlarmReason = "user-input" | "agent-complete" | "manual-test";
+
 let alarmProcess: ChildProcess | null = null;
+let activeAlarmReason: AlarmReason | null = null;
 let alarmEnabled = true;
 let lastAlarmError: string | null = null;
 
@@ -76,14 +79,22 @@ function startProcess(
 
   child.once("error", (error) => {
     clearTimeout(timeout);
-    if (alarmProcess === child) alarmProcess = null;
-    handlers.onError?.(error);
+    const wasActive = alarmProcess === child;
+    if (wasActive) handlers.onError?.(error);
+    if (alarmProcess === child) {
+      alarmProcess = null;
+      activeAlarmReason = null;
+    }
   });
 
   child.once("exit", (code, signal) => {
     clearTimeout(timeout);
-    if (alarmProcess === child) alarmProcess = null;
-    handlers.onExit?.(code, signal);
+    const wasActive = alarmProcess === child;
+    if (wasActive) handlers.onExit?.(code, signal);
+    if (alarmProcess === child) {
+      alarmProcess = null;
+      activeAlarmReason = null;
+    }
   });
 
   alarmProcess = child;
@@ -110,7 +121,7 @@ function startWindowsPlayer(): boolean {
   return child !== null;
 }
 
-function startFfplayOrFallback(): void {
+function startFfplayOrFallback(reason: AlarmReason): void {
   let spawned = false;
   let fallbackStarted = false;
 
@@ -118,7 +129,9 @@ function startFfplayOrFallback(): void {
     if (fallbackStarted) return;
     fallbackStarted = true;
 
+    activeAlarmReason = reason;
     if (!startWindowsPlayer()) {
+      activeAlarmReason = null;
       rememberError(error);
     }
   };
@@ -140,23 +153,28 @@ function startFfplayOrFallback(): void {
   );
 }
 
-function playAlarm(): void {
+function playAlarm(reason: AlarmReason): void {
   if (!alarmEnabled) return;
 
   stopAlarm();
+  activeAlarmReason = reason;
   lastAlarmError = null;
 
   if (!existsSync(ALARM_PATH)) {
+    activeAlarmReason = null;
     lastAlarmError = `Alarm-Datei fehlt: ${ALARM_PATH}`;
     return;
   }
 
-  startFfplayOrFallback();
+  startFfplayOrFallback(reason);
 }
 
-function stopAlarm(): void {
+function stopAlarm(reason?: AlarmReason): void {
+  if (reason !== undefined && activeAlarmReason !== reason) return;
+
   const child = alarmProcess;
   alarmProcess = null;
+  activeAlarmReason = null;
 
   if (child && !child.killed) {
     try {
@@ -172,6 +190,30 @@ function shouldPlayForMode(ctx: unknown): boolean {
   return mode === "tui" || mode === "rpc";
 }
 
+function isAssistantMessage(message: unknown): message is { role: "assistant"; stopReason: string } {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    (message as { role?: unknown }).role === "assistant" &&
+    typeof (message as { stopReason?: unknown }).stopReason === "string"
+  );
+}
+
+function getLastAssistantMessage(messages: AgentEndEvent["messages"]): { role: "assistant"; stopReason: string } | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (isAssistantMessage(message)) return message;
+  }
+
+  return null;
+}
+
+function shouldPlayForAgentEnd(event: AgentEndEvent): boolean {
+  // agent_end feuert auch bei Provider-/Reconnect-Fehlern, Abbrüchen und Length-Stops.
+  // Nur ein finales "stop" bedeutet: Pi ist wirklich mit der Antwort/Aufgabe fertig.
+  return getLastAssistantMessage(event.messages)?.stopReason === "stop";
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("agent_start", async (_event, ctx) => {
     // Neuer Prompt → laufenden Sound stoppen
@@ -183,14 +225,21 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_start", async (event, ctx) => {
     // Tools wie ask_user_question blockieren auf Userinput, bevor agent_end feuert.
     if (shouldPlayForMode(ctx) && USER_INPUT_TOOL_NAMES.has(event.toolName)) {
-      playAlarm();
+      playAlarm("user-input");
     }
   });
 
-  pi.on("agent_end", async (_event, ctx) => {
-    // Agent fertig und Pi wartet wieder auf Eingabe → Sound abspielen
-    if (shouldPlayForMode(ctx)) {
-      playAlarm();
+  pi.on("tool_execution_end", async (event, ctx) => {
+    // Sobald die Antwort vorliegt, nicht weiterklingeln während der Agent weiterarbeitet.
+    if (shouldPlayForMode(ctx) && USER_INPUT_TOOL_NAMES.has(event.toolName)) {
+      stopAlarm("user-input");
+    }
+  });
+
+  pi.on("agent_end", async (event, ctx) => {
+    // Nur erfolgreiche, endgültige Antworten melden; keine Reconnect-/Retry-/Abort-Enden.
+    if (shouldPlayForMode(ctx) && shouldPlayForAgentEnd(event)) {
+      playAlarm("agent-complete");
     }
   });
 
@@ -211,7 +260,7 @@ export default function (pi: ExtensionAPI) {
         stopAlarm();
         ctx.ui.notify("Alarm-Sound deaktiviert", "info");
       } else if (arg === "test") {
-        playAlarm();
+        playAlarm("manual-test");
         ctx.ui.notify(
           lastAlarmError ? `Alarm-Test konnte nicht starten: ${lastAlarmError}` : "Alarm-Test gestartet",
           lastAlarmError ? "error" : "info",

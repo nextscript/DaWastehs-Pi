@@ -13,11 +13,16 @@ theme, three local TypeScript extensions, and a few installed pi packages.
 ├── agent/
 │   ├── settings.json          # global settings (provider, model, packages, theme)
 │   ├── pix.json               # pix extension state/config
+│   ├── heimdall.example.json  # portable example; real heimdall.json is OS-local
 │   ├── npm/
 │   │   ├── package.json       # installed pi package manifest
 │   │   └── package-lock.json  # installed pi package lockfile
 │   ├── package.json           # editor-only devDependencies (see "Editor setup")
 │   ├── tsconfig.json          # editor-only TS config (see "Editor setup")
+│   ├── pi-hermes-memory/
+│   │   └── skills/            # global reusable Pi skills (published)
+│   ├── projects-memory/
+│   │   └── <project>/skills/   # project-scoped reusable Pi skills (published)
 │   └── extensions/            # auto-discovered local extensions (*.ts)
 │       ├── alarm-sound.ts
 │       ├── pi-autoupdate.ts
@@ -107,6 +112,35 @@ for details:
 The current installed package manifest is also tracked in
 `agent/npm/package.json` / `agent/npm/package-lock.json` so the repository
 reflects the package set managed by `pi update`.
+
+## Heimdall sandbox and OS-local state
+
+`agent/heimdall.json` is intentionally **not** tracked. Heimdall's sandbox uses
+Linux `bubblewrap`, so the bundled `pi-autoupdate.ts` extension keeps the real
+local config aligned with the current OS:
+
+- Linux: `sandbox.enabled = true`
+- Windows: `sandbox.enabled = false`
+- macOS: `sandbox.enabled = false` until Heimdall supports a macOS sandbox
+
+This prevents Windows/Linux/macOS checkouts from constantly dirtying Git with an
+OS-specific config flip. `agent/heimdall.example.json` documents the portable
+shape of the config.
+
+Other local runtime files are ignored too, including `agent/run-history.jsonl`,
+`agent/intercom/`, sessions, Hermes memory databases, and project `MEMORY.md`
+files.
+
+## Published skills
+
+Reusable Pi skills are intentionally tracked because they can help other users
+even on different systems:
+
+- `agent/pi-hermes-memory/skills/**/SKILL.md` — global skills
+- `agent/projects-memory/*/skills/**/SKILL.md` — project-scoped skills
+
+Only the skill files are published; private memory files and session databases
+remain ignored.
 
 ## Theme
 

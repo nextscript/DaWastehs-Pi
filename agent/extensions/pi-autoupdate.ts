@@ -554,11 +554,14 @@ export default async function (pi: ExtensionAPI) {
   }
 
   function desiredHeimdallSandboxEnabled(): boolean {
+    // pi-heimdall's sandbox is bubblewrap-based, and bubblewrap is Linux-only.
+    // Keep it off on Windows and macOS so cross-OS checkouts do not flip a
+    // tracked config file or show a misleading unsupported-sandbox warning.
     return process.platform === "linux";
   }
 
   function platformLabel(): string {
-    return process.platform === "win32" ? "Windows" : process.platform === "linux" ? "Linux" : process.platform;
+    return process.platform === "win32" ? "Windows" : process.platform === "linux" ? "Linux" : process.platform === "darwin" ? "macOS" : process.platform;
   }
 
   /** Keep Heimdall's Linux-only sandbox aligned with the current OS. */

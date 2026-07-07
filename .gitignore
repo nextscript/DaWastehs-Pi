@@ -1,22 +1,40 @@
 # --- Credentials / secrets ---
-auth.json
+**/auth.json
 .env
 .env.*
 !.env.example
-settings.json
 
-# --- Dependencies ---
+# --- Dependencies / generated bins ---
 node_modules/
+agent/node_modules/
+agent/npm/node_modules/
 npm/
 !agent/npm/
 !agent/npm/package.json
 !agent/npm/package-lock.json
 bin/
 
-# --- Pi runtime / local state ---
+# --- Pi runtime / local OS state ---
+# OS-specific and runtime files are created/updated locally by Pi/extensions.
+# Do not track them: Windows/Linux/macOS would otherwise keep flipping them.
+agent/heimdall.json
+agent/run-history.jsonl
+agent/intercom/
 sessions/
-pi-hermes-memory/
-projects-memory/
+
+# Keep Hermes memory databases/user memories private, but publish reusable skills.
+agent/pi-hermes-memory/*
+!agent/pi-hermes-memory/skills/
+!agent/pi-hermes-memory/skills/**/
+!agent/pi-hermes-memory/skills/**/SKILL.md
+
+# Keep project memories private, but publish project-scoped skills.
+agent/projects-memory/*
+!agent/projects-memory/*/
+agent/projects-memory/*/*
+!agent/projects-memory/*/skills/
+!agent/projects-memory/*/skills/**/
+!agent/projects-memory/*/skills/**/SKILL.md
 
 # --- Logs ---
 *.log

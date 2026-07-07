@@ -20,6 +20,7 @@ bin/
 agent/heimdall.json
 agent/run-history.jsonl
 agent/intercom/
+.pi-subagents/
 sessions/
 
 # Keep Hermes memory databases/user memories private, but publish reusable skills.

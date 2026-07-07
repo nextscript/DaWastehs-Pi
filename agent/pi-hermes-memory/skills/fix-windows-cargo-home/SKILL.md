@@ -1,26 +1,58 @@
 ---
-name: "fix-windows-cargo-home"
-description: "Move Cargo/RTK binaries out of an accidental project-local CARGO_HOME on Windows"
-version: 1
-created: "2026-06-23"
-updated: "2026-06-23"
+name: fix-windows-cargo-home
+description: "Move Cargo/RTK binaries out of an accidental project-local CARGO_HOME on Windows. Use whenever where.exe cargo/rtk resolves inside a repo or user-level CARGO_HOME points at a project directory."
 ---
-## When to Use
-Use when `where cargo`/`where rtk` resolves inside a project directory because user-level `CARGO_HOME` points there, but global Rust tools should live under the user's default Cargo home.
 
-## Procedure
-1. Inspect current process/user/machine env with PowerShell: print `$env:CARGO_HOME`, `[Environment]::GetEnvironmentVariable('CARGO_HOME','User')`, and `where.exe cargo rtk`.
-2. Copy binaries non-destructively from the misplaced `<project>\.cargo\bin` to `%USERPROFILE%\.cargo\bin`; copy `.crates.toml`, `.crates2.json`, and `config.toml` only if the destination lacks them.
-3. Unset user `CARGO_HOME` with `[Environment]::SetEnvironmentVariable('CARGO_HOME',$null,'User')`.
-4. Edit user PATH: remove `<project>\.cargo\bin`, ensure `%USERPROFILE%\.cargo\bin` is present.
-5. Verify by simulating a fresh environment: clear `$env:CARGO_HOME`, rebuild `$env:Path` from Machine+User env, then run `where.exe rtk`, `rtk --version`, `where.exe cargo`, `cargo --version`.
-6. Do not delete the old project `.cargo` directory without explicit user confirmation; it may contain caches or project config.
+# Fix Misplaced CARGO_HOME on Windows
+
+## Symptom
+`where.exe cargo` or `where.exe rtk` resolves to a project-local `.cargo\bin`, but Rust tools should live under `%USERPROFILE%\.cargo\bin`.
+
+## Repair procedure
+Inspect the real process/user/machine state first:
+
+```powershell
+$ErrorActionPreference = "Stop"
+$env:CARGO_HOME
+[Environment]::GetEnvironmentVariable('CARGO_HOME', 'User')
+[Environment]::GetEnvironmentVariable('CARGO_HOME', 'Machine')
+where.exe cargo
+where.exe rtk
+```
+
+Move binaries non-destructively, then unset user-level `CARGO_HOME`:
+
+```powershell
+$old = "<project>\.cargo"
+$new = Join-Path $env:USERPROFILE ".cargo"
+New-Item -ItemType Directory -Force "$new\bin" | Out-Null
+Copy-Item "$old\bin\*.exe" "$new\bin" -Force
+foreach ($f in '.crates.toml', '.crates2.json', 'config.toml') {
+  if ((Test-Path "$old\$f") -and -not (Test-Path "$new\$f")) { Copy-Item "$old\$f" "$new\$f" }
+}
+[Environment]::SetEnvironmentVariable('CARGO_HOME', $null, 'User')
+```
+
+Edit the user PATH: remove `<project>\.cargo\bin`, ensure `%USERPROFILE%\.cargo\bin` is present. Follow `powershell-windows-scripting` for fresh-shell/PATH rules.
 
 ## Pitfalls
-- A child PowerShell launched from the current agent inherits stale process `CARGO_HOME` and PATH. Verify registry/user env separately or simulate fresh env manually.
-- `cargo install rtk-ai` is wrong; RTK installs from GitHub: `cargo install --git https://github.com/rtk-ai/rtk`.
+- Child shells inherit stale `CARGO_HOME`; verify registry/user env separately or simulate a fresh process.
+- `cargo install rtk-ai` is wrong; RTK installs from GitHub:
+
+```powershell
+cargo install --git https://github.com/rtk-ai/rtk
+```
+
+- Do not delete the old project `.cargo` directory unless the user explicitly confirms; it may contain caches or project config.
 
 ## Verification
-1. User-level `CARGO_HOME` is empty or unset.
-2. User PATH no longer contains the project `.cargo\bin` and does contain `%USERPROFILE%\.cargo\bin`.
-3. Fresh-env `where rtk` resolves to `%USERPROFILE%\.cargo\bin\rtk.exe` and `rtk --version` succeeds.
+```powershell
+$env:CARGO_HOME = $null
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+where.exe rtk
+rtk --version
+where.exe cargo
+cargo --version
+```
+
+Expected: both tools resolve under `%USERPROFILE%\.cargo\bin`, and user-level `CARGO_HOME` is empty/unset.

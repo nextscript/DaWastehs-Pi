@@ -1,38 +1,47 @@
 ---
-name: "2d-pixel-engine-golden-rules"
-description: "Best Practices für die Architektur und Entwicklung von 2D-Pixel-Art-Game-Engines."
-version: 2
-created: "2026-05-29"
-updated: "2026-06-29"
+name: 2d-pixel-engine-golden-rules
+description: "Architecture and rendering rules for deterministic 2D pixel-art games. Use whenever designing a game loop, ECS/data layout, sprite renderer, camera, particles, or performance pass for a 2D browser/native pixel engine."
 ---
-## When to Use
-Wenn die Architektur, der Game Loop oder das Rendering für ein 2D-Pixel-Art-Spiel oder eine eigene Engine entworfen oder optimiert wird.
 
-## Procedure
-1. Implementierung eines 'Fixed Update Timestep': Trennung von Logik-Update (festes Intervall, z.B. 60Hz) und Render-Loop (so schnell wie möglich) mit einem Akkumulator und Interpolation der Positionen zwischen den letzten zwei States.
-2. Nutzung einer ECS-Architektur (Entity Component System): Bevorzugung von Komposition gegenüber Vererbung, um Daten lokal im Speicher zu halten (Cache-Friendliness) und Flexibilität zu maximieren.
-3. Implementierung von Object Pooling: Vorallokation von Pools für häufig genutzte Objekte (Bullets, Particles, Enemies), um dynamische Allokationen während des Gameplays zu eliminieren.
-4. Pixel-Perfect Rendering Pipeline: Rendering in einen internen Low-Res Buffer (z.B. 320x180), der anschließend mit einem ganzzahligen Faktor (Integer Scaling) auf die Bildschirmauflösung hochskaliert wird.
-5. Kamera- und Positions-Rounding: Anwendung von floor() oder round() auf die finalen Rendering-Koordinaten der Kamera und der Entities, um 'Texture Bleeding' und 'Jitter' zu vermeiden.
-6. Sprite-Sheet Optimierung: Verwendung von Texture Padding oder Edge Extrusion, um sicherzustellen, dass das bilinear/nearest Filtering nicht in benachbarte Sprites greift.
+# 2D Pixel-Art Engine Golden Rules
+
+## Fixed timestep
+- Simulation is fixed-rate (usually 60 Hz); rendering is as fast as the display allows.
+- Use an accumulator and clamp huge frame gaps after tab switches or pauses.
+- Interpolate render positions from the previous/current simulation states; never make physics speed depend on monitor Hz.
+
+```ts
+const STEP = 1 / 60;
+let acc = 0;
+function frame(nowDt: number) {
+  acc += Math.min(nowDt, 0.1);
+  while (acc >= STEP) { previous = current.clone(); update(STEP); acc -= STEP; }
+  render(acc / STEP);
+}
+```
+
+## Data layout and allocation
+- Prefer ECS/SoA data for hot simulation loops; composition beats deep inheritance trees.
+- Pool bullets, particles, enemies, decals, and transient effects. Stable gameplay should allocate zero objects per frame.
+- Keep grid/tile data flat (`index = y * width + x`); avoid array-of-arrays in hot paths.
+
+## Pixel-perfect rendering
+- Render into an internal low-resolution buffer (for example 320×180), then upscale by an integer factor.
+- Round final camera/entity draw coordinates (`Math.round`/`floor`) after camera transforms to avoid subpixel jitter.
+- Sprite sheets need padding/edge extrusion so nearest/bilinear sampling cannot bleed into neighboring frames.
+
+## System-specific performance hooks
+- Do not duplicate hardware tuning here. For 285K P/E-core scheduling, AVX2-only SIMD, cache facts, and Windows-native C++ details, use `windows-cpp-golden-rules`.
+- For AMD GPU/inference roles on Pandaking, use `amd-dual-gpu-inference`; gameplay rendering normally targets the display GPU and keeps AI workloads separate.
 
 ## Pitfalls
-- Framerate-abhängige Physik: Nutzung von 'position += speed * delta_time' führt zu inkonsistentem Verhalten bei unterschiedlichen FPS.
-- OOP-Vererbungshöllen: Tiefe Hierarchien (z.B. Entity -> Actor -> Pawn -> Player) machen den Code starr und schwer wartbar.
-- Memory Churn: Ständiges Instanziieren und Zerstören von Projektilen oder Partikeln im Game Loop führt zu Garbage Collection Spikes (Lags).
-- Subpixel-Jitter: Rendering von Entities an Floating-Point-Positionen ohne Rundung führt zu zitternden Pixeln bei langsamen Bewegungen.
-- Texture Bleeding: Fehlende Padding-Pixel in Sprite-Sheets verursachen farbige Artefakte an den Kanten beim Sampling.
+- `position += speed * deltaTime` inside collision/physics creates different gameplay at 30/60/144 Hz.
+- Floating render coordinates cause shimmering even when the simulation is correct.
+- Spawning/destroying particles per frame causes GC or allocator spikes.
+- Texture bleeding usually means missing padding, wrong UVs, or non-integer scaling.
 
 ## Verification
-1. Determinismus-Check: Läuft die Physik/Logik bei 30fps exakt so schnell und stabil wie bei 144fps?
-2. Jitter-Test: Bewege die Kamera extrem langsam über ein statisches Objekt; die Pixel müssen stabil bleiben und nicht 'springen'.
-3. Profiling: Überprüfung des Memory-Profilers auf 'Zero Allocations' während einer stabilen Gameplay-Sequenz (keine GC-Spikes).
-4. Scaling-Test: Prüfung des Bildes bei verschiedenen Fenstergrößen auf quadratische Pixel (keine verzerrten Rechtecke).
-
-## Hardware-Tuning (optional)
-Optional an dieses System anpassen, wenn maximale Performance gewünscht ist:
-
-- **Hybrid-Job-System**: Auf dem Intel Core Ultra 9 285K (8 P- + 16 E-Cores, kein HT) den Fixed-Update-Timestep und den Render-Loop auf P-Cores (Lion Cove) binden; Asset-Loading, Audio-Decoding und Logging auf E-Cores (Skymont) über ein Work-Stealing-Executor. `SetThreadSelectedCpuSets` für Affinität nutzen.
-- **SIMD-Sprite-Blits**: Sprite-Blitting/Pixel-Kopier-Pfade mit AVX2 (`__m256i`, 32 Bytes pro Vektor = 32 Pixel bei 8-bit) vektorisieren. **KEIN AVX-512** — der 285K hat nur AVX2/VNNI.
-- **GPU-Renderer**: Für GPU-beschleunigte Post-Processing (CRT-Shaders, Bloom) die AMD Radeon RX 9070 XT (16 GB, RDNA4) via D3D12/Vulkan ansprechen; die AI PRO R9700 (32 GB) bleibt freit für parallel laufende ML-Workloads.
-- **Cache-Ziel**: Tile-/Tilemap-Daten ≤ 32 KB (P-Core L1d 48 KB) halten, SoA für parallele Komponenten-Updates.
+- Logic behaves identically at 30, 60, and 144 FPS.
+- Slow camera pan over a checkerboard shows stable square pixels with no shimmer.
+- Profiler shows no per-frame allocations during a steady gameplay sequence.
+- Scaling tests at odd window sizes preserve square pixels and expected letterboxing.

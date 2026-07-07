@@ -1,30 +1,40 @@
 ---
-name: "mcp-server-golden-rules"
-description: "Best Practices für die Architektur und Entwicklung von MCP-Servern nach Spec-Stand 2025-06-18 (Streamable HTTP statt SSE)."
-version: 2
-created: "2026-05-29"
-updated: "2026-06-29"
+name: mcp-server-golden-rules
+description: "Build MCP servers against the 2025-06-18 spec using Streamable HTTP instead of deprecated HTTP+SSE. Use for MCP server architecture, transports, tool schemas, CORS/session debugging, and LLM-tool hardening."
 ---
-## When to Use
-Wenn MCP-Server (Model Context Protocol) nach aktuellem Spec-Stand (2025-06-18) entworfen, gebaut oder für lokale/Remote-LLMs debuggt werden.
 
-## Procedure
-1. Strukturierung der Fähigkeiten: Trenne strikt zwischen Resources (lesbare Daten/URIs), Prompts (Templates/Anleitungen) und Tools (ausführbare Aktionen).
-2. Tool-Definition: Definiere Tool-Inputs präzise über JSON-Schema, um dem LLM exakte Typen und Beschreibungen zu liefern.
-3. Transport-Wahl: **stdio** für lokale Integrationen (IDE/Desktop-Apps); **Streamable HTTP** für Remote-Deployments. Das alte HTTP+SSE-Transport ist seit Spec 2025-03-26 *deprecated* — nur noch als optionale Rückwärts-Kompatibilität, neuer Code ausschließlich als Streamable HTTP (einziges `POST /mcp`-Endpoint, optionales SSE-Upgrade für Streaming-Responses, `Mcp-Session-Id`-Header für stateful Sessions).
-4. Lokale LLMs auf diesem System: LLM-Inferenz läuft GPU-beschleunigt auf der AMD Radeon AI PRO R9700 (32 GB) oder RX 9070 XT (16 GB) via HIP/ROCm bzw. Vulkan (z. B. llama.cpp). Der MCP-Server bleibt selbst CPU/Transport-Ebene und backend-agnostisch.
-5. Asynchrone Implementierung: konsequent async/await (TypeScript) bzw. asyncio (Python) für Responsivität.
-6. Sauberes Error-Handling: Try-Catch in Tool-Handlern und strukturierte JSON-RPC-Fehler (`-32xxx`-Codes) zurückgeben statt den Server abstürzen zu lassen.
+# MCP Server Golden Rules (Spec 2025-06-18)
 
-## Pitfalls
-- Schreiben von Debug-Logs/Prints in stdout: bei stdio-Transport zerstört jede nicht-JSON-RPC-Zeile in stdout den Stream → zwingend stderr für Logs.
-- **SSE als "modern" ansehen**: HTTP+SSE ist deprecated. Neuer Code = Streamable HTTP; Legacy-SSE nur noch explizit als Fallback.
-- Blockierende I/O-Operationen: synchrones Warten blockiert den JSON-RPC-Loop und führt zu Timeouts.
-- Fehlende Input-Validierung: blindes Vertrauen der Tool-Argumente → Abstürze/Lücken; strikt nach JSON-Schema validieren.
-- Überladene Tools: zu viele Verantwortlichkeiten pro Tool verwirren das LLM → Single Responsibility.
+## Capability model
+- Keep the three MCP concepts separate: Resources are readable data/URIs, Prompts are reusable templates, Tools perform actions.
+- Tool inputs need precise JSON Schema with descriptions, enums, nullable fields, and safe defaults.
+- One tool = one responsibility. Large kitchen-sink tools confuse the model and make validation weak.
+
+## Transport contract
+- Local desktop/IDE integration: `stdio` is fine, but stdout must contain only JSON-RPC. Logs go to stderr.
+- Remote/web integration: new code uses **Streamable HTTP**. Legacy HTTP+SSE is deprecated and only a compatibility fallback.
+
+```text
+POST /mcp
+Mcp-Session-Id: <server-issued id for stateful sessions>
+(optional) SSE upgrade for streaming responses
+```
+
+## Backend boundaries
+- The MCP server is transport/tool orchestration. It should stay CPU/backend-agnostic.
+- LLM inference backend choices on Pandaking belong in `amd-dual-gpu-inference`; do not bake R9700/9070 assumptions into generic MCP server code.
+
+## Async and errors
+- Use async/await (`asyncio` in Python, Promises in TypeScript) for filesystem/network/tool work.
+- Validate arguments before side effects and return structured JSON-RPC errors (`-32xxx`) instead of crashing.
+- For LLM/prompt-injection boundaries, also consult `security-and-pentesting-golden-rules`.
 
 ## Verification
-1. Lokaler Test mit MCP-Inspector: `npx @modelcontextprotocol/inspector <start-command>` und alle Tools/Resources durchspielen.
-2. Transport-Check: Remote-Server antwortet auf `POST /mcp` (Streamable HTTP), `Mcp-Session-Id` wird gesetzt und respektiert.
-3. Log-Check: sämtliche Debug-Ausgaben in stderr, stdout enthält ausschließlich gültiges JSON-RPC.
-4. Schema-Validierung: Tool-Calls mit ungültigen Argumenten testen, damit die Validierung greift.
+```bash
+npx @modelcontextprotocol/inspector <start-command>
+```
+
+- Inspector can list resources/prompts/tools and call each tool.
+- Remote server accepts `POST /mcp`, sets/respects `Mcp-Session-Id`, and handles invalid args cleanly.
+- stdout/stderr are separated correctly for stdio transports.
+- CORS exposes MCP session/protocol headers when browsers or llama.cpp WebUI need them.

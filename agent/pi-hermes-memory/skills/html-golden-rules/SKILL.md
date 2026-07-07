@@ -1,33 +1,61 @@
 ---
-name: "html-golden-rules"
-description: "Best Practices für modernes, semantisches und barrierefreies HTML (Stand 2026)."
-version: 1
-created: "2026-05-29"
-updated: "2026-05-29"
+name: html-golden-rules
+description: "Modern semantic and accessible HTML rules (2026). Use whenever writing or reviewing markup, templates, forms, dialogs, navigation, static HTML apps, or accessibility fixes."
 ---
-## When to Use
-Wenn HTML-Markup, UI-Komponenten, Web-Templates oder Formulare geschrieben, gereviewt oder refactored werden.
 
-## Procedure
-1. 1. Grundstruktur: Setze immer <html lang="..."> und den Mobile-First Viewport-Meta-Tag.
-2. 2. Semantik vor Styling: Wähle das Element nach seiner Bedeutung, nicht nach seinem Aussehen. Nutze <header>, <main>, <footer>, <nav>, <aside>, <article> und <section> korrekt.
-3. 3. Native interaktive APIs: Bevorzuge native Elemente wie <dialog> für Modals, <details>/<summary> für Akkordeons und das 'popover' Attribut für Tooltips/Popups.
-4. 4. A11y First: Verknüpfe jedes Formularfeld explizit via <label for="...">. Nutze ARIA-Attribute nur, wenn natives HTML nicht ausreicht (ARIA is a supplement, not a replacement).
-5. 5. Performance-Optimierung: Implementiere natives Lazy-Loading (loading='lazy') für Bilder/Iframes. Nutze <picture> und srcset für responsive Bilder. Setze fetchpriority='high' für LCP-Elemente.
-6. 6. Resource Hints: Nutze <link rel='preload'> für kritische Assets und <link rel='prefetch'> für vorhersehbare Folgeseiten.
-7. 7. Sicherheit im Markup: Verwende rel='noopener noreferrer' für externe Links. Achte auf korrektes Escaping von Attributen zur XSS-Prävention.
+# HTML Golden Rules (2026)
+
+## Document skeleton
+Every page starts with language, charset, viewport, and a real title:
+
+```html
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>App name</title>
+</head>
+<body>
+  <main id="main-content">...</main>
+</body>
+</html>
+```
+
+## Semantics first
+- Choose elements by meaning, not appearance: `header`, `main`, `footer`, `nav`, `article`, `section`, `aside`.
+- Use buttons for actions and anchors for navigation. Do not build clickable `div`/`span` controls.
+- Keep heading levels logical; do not jump from `h1` to `h3` because it looks nicer.
+
+## Native interactive APIs
+- Prefer `button`, `label`, `select`, `textarea`, `details/summary`, `dialog`, and `popover` before custom ARIA widgets.
+- Every form control gets an explicit label (`for`/`id`) or an accessible name.
+- ARIA supplements native HTML; it does not replace it.
+
+## Images and resource hints
+```html
+<picture>
+  <source srcset="hero.avif" type="image/avif">
+  <img src="hero.jpg" width="1280" height="720" alt="..." fetchpriority="high">
+</picture>
+<img src="thumb.jpg" loading="lazy" decoding="async" alt="...">
+```
+
+- Use `preload` only for critical assets; use `prefetch` for likely next navigations.
+- Always set image dimensions to prevent layout shift.
+
+## Security in markup
+- External links opened in a new tab need `rel="noopener noreferrer"`.
+- Escape text and attributes; never inject untrusted strings through `innerHTML` unless sanitized.
 
 ## Pitfalls
-- 'Div-Soup': Übermäßiger Einsatz von <div>-Containern anstelle semantischer Elemente (z.B. <main>, <article>, <section>).
-- Interaktions-Fehler: Nutzung von <div> oder <span> als Button statt <button> (fehlende Tastaturbedienbarkeit/Screenreader-Support).
-- Link-Verwechslung: Verwendung von <a> für Aktionen (statt <button>) oder <button> für Navigation (statt <a>).
-- Barrierefreiheit-Lücken: Fehlende alt-Attribute bei Bildern oder redundante Beschreibungen (z.B. 'Bild von...').
-- Formular-Mängel: Inputs ohne korrespondierende <label>-Verknüpfung oder <form> ohne definierte Action/Method.
-- Kaputtes Tab-Management: Einsatz von tabindex > 0, was die natürliche Tab-Reihenfolge zerstört.
-- Hierarchie-Brüche: Übersprungene Heading-Level (z.B. <h1> gefolgt von <h3>).
+- Div soup instead of landmarks.
+- `tabindex > 0` breaks natural keyboard navigation.
+- Missing or redundant image alt text (`"image of"` is usually noise).
+- Form fields without labels; custom controls without keyboard support.
 
 ## Verification
-1. W3C Validator: Markup auf syntaktische Korrektheit prüfen.
-2. Lighthouse Audit: Accessibility-Score von 100 anstreben.
-3. Keyboard-Only Test: Die gesamte Seite ohne Maus mittels Tab-Taste navigierbar machen (Fokus-Indikatoren müssen sichtbar sein).
-4. Screenreader-Check: Mit NVDA oder VoiceOver prüfen, ob die Semantik die Struktur korrekt wiedergibt.
+- W3C Validator reports no structural errors.
+- Lighthouse/accessibility score targets 100.
+- Keyboard-only test reaches every control with visible focus.
+- NVDA/VoiceOver announces a sensible page structure.

@@ -1,14 +1,14 @@
 ---
-name: "audit-goauld-translator-quality"
+name: audit-goauld-translator-quality
 description: "Audit dictionaries and translation quality in the Goa'uld Translator repo"
-version: 4
-created: "2026-06-15"
-updated: "2026-06-15"
 ---
-## When to Use
+
+# Goa'uld Translator — Dictionary & Quality Audit
+
+## Scope
 Use when reviewing or debugging translation quality, dictionary conflicts, or lexicon behavior in this Goa'uld Translator repository.
 
-## Procedure
+## Workflow
 1. Inspect dictionary/table counts with `wc -l` and a small Python parser over `Goauld-Dictionary.md`, `Goauld-Woerterbuch.md`, `Goauld-Fictionary.md`, and `Goauld-Neologikum.md`.
 2. Load `goauld_lexicon.yaml` through `yaml_loader.load_lexicon_yaml()`; remember this merges `goauld_overrides.yaml` when present. Summarize flat entries, DE/EN primary maps, secondary maps, register/tier counts, and top gloss conflicts.
 3. Treat `goauld_overrides.yaml` as the curated runtime/language-development overlay. For language expansion work, add reviewed entries there with DE+EN glosses, `review_status`, derivation/morphology, source tier, and examples; do not hard-code runtime vocabulary in `_GAP_FILL`.

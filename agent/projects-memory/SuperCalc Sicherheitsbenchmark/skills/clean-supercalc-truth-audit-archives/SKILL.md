@@ -1,14 +1,14 @@
 ---
-name: "clean-supercalc-truth-audit-archives"
+name: clean-supercalc-truth-audit-archives
 description: "Safely clean legacy SuperCalc archive/run artifacts while keeping current truth-audit runs"
-version: 1
-created: "2026-06-28"
-updated: "2026-06-28"
 ---
-## When to Use
+
+# SuperCalc Benchmark — Clean Truth-Audit Archives
+
+## Scope
 Use when the user wants a clean SuperCalc benchmark archive/run history that keeps only current runs with Run 3 truth_audit, and explicitly wants old artifacts moved to Windows Recycle Bin instead of permanently deleted.
 
-## Procedure
+## Workflow
 1. Identify repo scorecards under archive/supercalc-v3/*/*.json with Python, not Windows PowerShell 5.1 ConvertFrom-Json -Depth. Keep scorecards whose runs contain runKind='truth_audit' or a truth/audit run with groundTruthVisibleToModel=true.
 2. Move only repo archive model directories with zero truth-audit scorecards to Recycle Bin. Keep directories with any truth-audit scorecard; if mixed, move individual legacy files instead of the whole directory.
 3. Move archive/_reports to Recycle Bin because generated comparison reports are stale after pruning and can be regenerated with `dotnet run --project src/SuperCalcBenchmark.Cli -- compare`.

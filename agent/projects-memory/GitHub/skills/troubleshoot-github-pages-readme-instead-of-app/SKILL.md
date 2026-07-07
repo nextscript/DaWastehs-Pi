@@ -1,14 +1,14 @@
 ---
-name: "troubleshoot-github-pages-readme-instead-of-app"
+name: troubleshoot-github-pages-readme-instead-of-app
 description: "Diagnose and fix GitHub Pages showing README/Jekyll output instead of an HTML app"
-version: 1
-created: "2026-06-15"
-updated: "2026-06-15"
 ---
-## When to Use
+
+# GitHub Pages — README Instead of App Troubleshooting
+
+## Scope
 Use when a GitHub Pages project URL renders the repository README or default Jekyll theme instead of the intended static app/game.
 
-## Procedure
+## Workflow
 1. Check the repo for a Pages entrypoint: root index.html for branch-root publishing, docs/index.html for branch-docs publishing, or a workflow that uploads an artifact containing index.html.
 2. Fetch the live Pages URL and inspect the title/content; GitHub/Jekyll README output usually has the repo name in the title and README headings, while the app has the app title and markup.
 3. Inspect .github/workflows for actions/configure-pages, upload-pages-artifact, and deploy-pages. If present, confirm the workflow creates/copies the intended app as index.html in the uploaded artifact.

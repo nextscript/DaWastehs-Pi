@@ -1,14 +1,14 @@
 ---
-name: "smoke-test-flora-ui-interactions"
+name: smoke-test-flora-ui-interactions
 description: "Smoke-test interactive UI behavior in the flora-bellydance Astro site"
-version: 1
-created: "2026-06-18"
-updated: "2026-06-18"
 ---
-## When to Use
+
+# Flora Bellydance — UI Interaction Smoke Test
+
+## Scope
 Use after changing client-side interactions in this Astro repo, especially dialogs, gallery lightboxes, outfit selectors, or contact form behavior.
 
-## Procedure
+## Workflow
 1. Run `npm run build` first to catch Astro/Vite errors.
 2. Start a local static server with `npm run preview -- --host 127.0.0.1 > /tmp/flora-preview.log 2>&1 & echo $!` and keep the printed PID.
 3. Use Playwright from Node to visit `http://127.0.0.1:4321/`. Launch Chromium with `chromium.launch({ channel: 'chrome', headless: true })` because bundled Playwright browsers may be missing in this environment.

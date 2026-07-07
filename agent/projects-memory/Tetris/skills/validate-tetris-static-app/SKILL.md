@@ -1,14 +1,14 @@
 ---
-name: "validate-tetris-static-app"
+name: validate-tetris-static-app
 description: "Validate this repo's no-build Tetris static app after code or workflow changes"
-version: 3
-created: "2026-06-22"
-updated: "2026-06-22"
 ---
-## When to Use
+
+# Tetris — Static App Validation
+
+## Scope
 Use after editing tetris.html, tetris-logic.js, index.html, smoke-test.cjs, or GitHub Actions workflow for this Tetris repo.
 
-## Procedure
+## Workflow
 1. Run `node smoke-test.cjs` to validate pure game rules, critical wiring, and workflow hardening checks.
 2. Run `npx --yes htmlhint@1.9.2 index.html tetris.html` for HTML validation; keep the version pinned and do not use `--compact` because current htmlhint CLI rejects it.
 3. Run `node --check tetris-logic.js && node --check smoke-test.cjs` for JS syntax checks.

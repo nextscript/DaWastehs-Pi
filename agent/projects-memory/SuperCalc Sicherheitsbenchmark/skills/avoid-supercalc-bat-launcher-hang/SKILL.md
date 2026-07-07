@@ -1,14 +1,14 @@
 ---
-name: "avoid-supercalc-bat-launcher-hang"
+name: avoid-supercalc-bat-launcher-hang
 description: "Diagnose and avoid Windows Terminal hangs when launching the SuperCalc WPF app"
-version: 1
-created: "2026-06-27"
-updated: "2026-06-27"
 ---
-## When to Use
+
+# SuperCalc Benchmark — Avoid Windows Launcher Hangs
+
+## Scope
 Use when the SuperCalc GUI startup leaves a cmd/Terminal window open, unresponsive, or visible after the WPF window appears.
 
-## Procedure
+## Workflow
 1. Check the app log first: if it shows 'Bereit' and archive loading completed quickly, the WPF startup path is not the blocker.
 2. Do not rely on start.bat for a no-console launch on Windows 11/Windows Terminal; even an empty .bat can keep cmd/Terminal alive for several seconds.
 3. Use or maintain start.vbs as the preferred no-console launcher. It resolves Release first, Debug fallback, sets the working directory to the app output folder, runs SuperCalcBenchmark.App.exe through WScript.Shell.Run with wait=false, and exits.

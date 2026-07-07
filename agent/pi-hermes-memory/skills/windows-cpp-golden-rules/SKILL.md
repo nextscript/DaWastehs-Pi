@@ -1,58 +1,49 @@
 ---
-name: "windows-cpp-golden-rules"
-description: "Golden Rules für professionelles C/C++- und System-Programming auf Windows 11 (MSVC, CMake, Ninja, WinAPI, Kernel), getunt für Intel Core Ultra 9 285K (AVX2, Hybrid 8P/16E)."
-version: 2
-created: "2026-05-29"
-updated: "2026-06-29"
+name: windows-cpp-golden-rules
+description: "Professional Windows 11 C/C++ and systems-programming rules for MSVC, CMake/Ninja, WinAPI, kernel-mode, and Intel Core Ultra 9 285K tuning. Use whenever writing or reviewing native Windows code."
 ---
-## When to Use
-Wenn C oder C++ Code für Windows 11 (User-Mode oder Kernel-Mode) geschrieben oder debuggt wird. Tuned für Intel Core Ultra 9 285K (Arrow Lake-S: 8 P-Cores Lion Cove + 16 E-Cores Skymont, 24C/24T, kein HT) und AMD-GPU-Compute.
 
-## Procedure
-### 1. Build System & Toolchain
-- **Toolchain**: MSVC (Latest) + CMake + Ninja für maximale Build-Geschwindigkeit.
-- **Dependency Management**: `vcpkg` im Manifest-Modus (`vcpkg.json`).
-- **Configuration**: `CMakePresets.json` zum Standardisieren der Build-Umgebungen.
-- **Standard**: C++20/C++23 (oder neuestes verfügbar), `/W4` (Warning Level 4) + `/WX` (Warnings as Errors).
+# Windows C/C++ Golden Rules (285K / Arrow Lake-S)
 
-### 2. CPU-Tuning für den 285K (Arrow Lake)
-- **SIMD-Codepaths**: Maximales CPU-Target ist `/arch:AVX2` (plus `/arch:AVXVNNI`/AVX10-Optionen für Int8/VNNI-Workloads). **KEIN AVX-512** — der 285K unterstützt nur AVX2/AVX-VNNI; `/arch:AVX512` erzeugt Code, der mit Illegal-Instruction faultet. Runtime-Dispatch über `__cpuid`/`IsProcessorFeaturePresent` anbieten.
-- **Hybrid-Scheduling**: 24 logische Cores = 8 P- (Lion Cove) + 16 E-Cores (Skymont), kein Hyperthreading. Latenz-kritische Threads (Audio/Render/Game-Loop) bevorzugt auf P-Cores; Hintergrundlast (Build, Decoding, Asset-Loading) auf E-Cores via `SetThreadInformation(ThreadPowerThrottling)` oder `GetSystemCpuSetInformation`/`SetThreadSelectedCpuSets`. Keine SMT-Paar-Annahmen.
-- **Cache-bewusst**: P-Core L1d 48 KB / L2 2 MB privat; E-Core L1d 64 KB / L2 4 MB je 4er-Cluster; 36 MB shared L3. Datenstrukturen (Tiles, SoA) auf diese Working-Sets zuschneiden.
+## Toolchain baseline
+- MSVC latest + CMake + Ninja is the default fast path; use `vcpkg.json` manifest mode for dependencies.
+- Standardize builds with `CMakePresets.json`.
+- Treat `/W4 /WX`, `/analyze`, ASan (`/fsanitize=address`), and tests as normal development tools, not optional polish.
 
-### 3. Memory & Resource Management
-- **RAII Everywhere**: nie rohe `new`/`delete`; `std::unique_ptr`/`std::shared_ptr`.
-- **WinAPI Handles**: alle `HANDLE`/`HMODULE`/`HKEY` in Smart Pointern mit Custom Deleter (`std::unique_ptr<void, decltype(&CloseHandle)>`).
-- **Aligned Allocation (MSVC-korrekt!)**: MSVC unterstützt `std::aligned_alloc` **NICHT**. Nutze `_aligned_malloc`/`_aligned_free`, C++17 `std::pmr` mit aligned Polymorphic Resource, oder C++17/20 aligned `new` (`alignas(64) T* p = new T;` → ruft `operator new(size, align_val)`).
+## CPU tuning on Intel Core Ultra 9 285K
+- 24 logical cores = 8 P-cores + 16 E-cores, no Hyper-Threading. Do not assume SMT pairs.
+- Maximum safe SIMD target is AVX2/AVX-VNNI. **No AVX-512** on this CPU.
+- Runtime-dispatch feature-specific code paths with `__cpuid` / `IsProcessorFeaturePresent`.
+- Latency-critical render/audio/game threads prefer P-cores; asset loading/logging/background work can use E-cores via `GetSystemCpuSetInformation` / `SetThreadSelectedCpuSets`.
+- Cache facts: P L1d 48 KB, P L2 2 MB private; E L1d 64 KB, E L2 4 MB per 4-core cluster; 36 MB shared L3.
 
-### 4. Windows API & String Handling
-- **Unicode First**: `std::wstring`/`wchar_t` an der WinAPI-Grenze; interne Logik UTF-8 (`std::string`), nur an der Boundary konvertieren.
-- **API Selection**: stets 'W'-Suffix (`CreateFileW` etc.).
-- **Filesystem**: `std::filesystem` für Pfade (Long Paths, cross-plat).
+## Memory and resources
+- RAII everywhere. No raw owning `new`/`delete` in application code.
+- Wrap `HANDLE`, `HMODULE`, `HKEY`, COM interfaces, PDH queries, and other WinAPI resources with custom deleters.
+- MSVC does not support `std::aligned_alloc`; use `_aligned_malloc/_aligned_free`, aligned `operator new`, or a PMR resource.
 
-### 5. System & Kernel Programming
-- **IRQL Awareness**: im Kernel Mode IRQL prüfen, bevor paged Memory berührt wird.
-- **Pool Choice**: `NonPagedPoolNx` für residenten Speicher; keine executable Pools außer wenn zwingend nötig.
-- **Error Handling**: `NTSTATUS` (Kernel) / `HRESULT` (User-Mode COM), gewrappt in `std::expected` (C++23).
+```cpp
+using unique_handle = std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)>;
+unique_handle h(CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr), CloseHandle);
+if (h.get() == INVALID_HANDLE_VALUE) throw_last_error();
+```
 
-### 6. Concurrency & Synchronization
-- **Primitives**: `std::mutex`/`std::condition_variable`; `SRWLock` für High-Perf.
-- **Thread Safety**: kein `volatile` für Sync → `std::atomic`.
-- **Asynchronous I/O**: IOCP oder `std::async`.
+## WinAPI and strings
+- Use `W` APIs (`CreateFileW`) at OS boundaries. Internal text may stay UTF-8, but convert deliberately.
+- Use `std::filesystem` and enable long paths via manifest when shipping apps.
+- Never assume `MAX_PATH` unless the target API explicitly requires it.
 
-## Pitfalls
-- **`/arch:AVX512` auf dem 285K**: ILLEGAL — nur AVX2/VNNI; führt zu Illegal-Instruction-Crashes.
-- **`std::aligned_alloc` unter MSVC**: nicht verfügbar → Compiler/Linker-Fehler. MSVC-Pfade verwenden.
-- ANSI APIs ('A'-Versionen) → Encoding-Bugs; stets 'W'.
-- MAX_PATH (260) annehmen → Long-Path-Prefix (`\\?\`) bzw. Manifest `<longPathAware>`.
-- Handle Leaks: `CloseHandle`/`Release` vergessen → RAII-Wrapper nutzen.
-- Kernel IRQL: paged-Funktionen bei DISPATCH_LEVEL+ → sofortiger BSOD.
-- UTF-8/UTF-16-Mixing mit veralteten APIs → `WideCharToMultiByte`/`MultiByteToWideChar`.
+## Kernel/system code
+- Check IRQL before touching paged memory.
+- Use `NonPagedPoolNx`; executable pools only when truly required.
+- Model errors as `NTSTATUS`, `HRESULT`, or `std::expected`, not silent booleans.
 
 ## Verification
-1. MSVC Static Analysis (`/analyze`) auf API-Misuse.
-2. AddressSanitizer (`/fsanitize=address`) + UBSan für Memory-Corruption/UB.
-3. App-Manifest `<longPathAware>true</longPathAware>`.
-4. WinAPI-Calls prüfen (`NULL`/`FALSE` + `GetLastError()`).
-5. `rg`/`grep` über Codebase: keine 'A'-Versionen, kein `std::aligned_alloc`, keine `/arch:AVX512`.
-6. CPUID-Dispatch-Test: AVX2-Pfad läuft nativ, Fallback-Pfad auf Systemen ohne VNNI.
+```powershell
+rg "std::aligned_alloc|/arch:AVX512|CreateFileA|RegOpenKeyA|strcpy|sprintf|gets" .
+```
+
+- Build with `/W4 /WX /analyze` and ASan where supported.
+- Manifest contains `<longPathAware>true</longPathAware>` for app targets.
+- CPUID dispatch smoke test exercises AVX2 and fallback paths.
+- Static search finds no ANSI WinAPI calls, banned C functions, or AVX-512 flags.

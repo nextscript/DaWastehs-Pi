@@ -1,14 +1,14 @@
 ---
-name: "system-tricorder-linux-hardware-parity"
+name: system-tricorder-linux-hardware-parity
 description: "Fix or validate System Tricorder Linux GPU/disk detection while preserving Windows behavior"
-version: 1
-created: "2026-07-04"
-updated: "2026-07-04"
 ---
-## When to Use
+
+# System Tricorder — Linux Hardware Parity
+
+## Scope
 Use when System Tricorder has Ubuntu/Linux hardware-monitoring bugs, especially GPU enumeration/utilization or drive tile naming/partition issues.
 
-## Procedure
+## Workflow
 1. Keep Windows-specific paths (WMI, registry, PDH) isolated and unchanged; branch Linux fixes behind platform.system() == 'Linux'.
 2. For Linux GPU UI tile creation, use _linux_detect_gpus() rather than Windows get_wmi_gpu_list()/get_registry_gpu_vrams().
 3. Parse lspci -mm -nn with shlex.split(); GPU model is field 3 and PCI slots need normalization between lspci/sysfs/NVML forms.

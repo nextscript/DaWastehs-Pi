@@ -1,14 +1,14 @@
 ---
-name: "validate-flora-astro-content-migration"
+name: validate-flora-astro-content-migration
 description: "Compare and migrate content from the legacy Flora Bellydance site into this Astro repo"
-version: 1
-created: "2026-06-18"
-updated: "2026-06-18"
 ---
-## When to Use
+
+# Flora Bellydance — Astro Content Migration Validation
+
+## Scope
 Use when updating this repo from the legacy flora-bellydance.de content or checking whether the new Astro pages contain all old website information.
 
-## Procedure
+## Workflow
 1. Fetch the legacy URL(s), especially `/bellydance-bauchtanz-muenchen/` and `/bellydance-bauchtanz-muenchen/bauchtanz`, and extract visible text, links, image/video counts, meta title/description, legal sections, reviews, FAQs, events, and contact data.
 2. Compare the extracted content against `src/pages/index.astro`, `src/pages/shows/index.astro`, `src/pages/tanzkurse/index.astro`, `src/pages/ueber-flora/index.astro`, `src/pages/galerie/index.astro`, `src/pages/impressum/index.astro`, `src/pages/datenschutz/index.astro`, and navigation components.
 3. Keep gallery/media as placeholders unless the user provides final Flora-approved files, but preserve reachable structure and accurate descriptions/count intent where needed.

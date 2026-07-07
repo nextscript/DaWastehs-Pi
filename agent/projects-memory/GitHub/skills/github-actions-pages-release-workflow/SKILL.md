@@ -1,14 +1,14 @@
 ---
-name: "github-actions-pages-release-workflow"
+name: github-actions-pages-release-workflow
 description: "Add/fix GitHub Actions auto-release + Pages deploy in HTML game repos; diagnose deploy-pages failures without log access"
-version: 1
-created: "2026-06-28"
-updated: "2026-06-28"
 ---
-## When to Use
+
+# GitHub Actions — Pages Deploy + Release Workflow
+
+## Scope
 Use when adding an automatic GitHub Release job (on push to main) to a repo that already has a Pages deploy, OR when diagnosing a failing actions/deploy-pages / release-creation step where you cannot read the step logs directly (no admin API token). Common in the DaWasteh HTML-game repos (GameOfLife, Pong, Snake Ultimate, Tetris, SandGame, SuperCalc).
 
-## Procedure
+## Workflow
 1. Trigger architecture: `on: [push: main, pull_request, workflow_dispatch]`. Remove any `on: release: published`. Add a `release` job: `needs: build`, `if: github.ref == 'refs/heads/main' && github.event_name == 'push'`, `permissions: contents: write`, `concurrency: group: release-${{ github.ref }}`.
 2. Release job steps: checkout (fetch-depth: 0) -> download-artifact -> 'Create release archive': `cd release-artifacts && zip -r "$archive" .` then `echo "ARCHIVE=$archive" >> $GITHUB_ENV` (BARE filename, NOT '../$archive') -> 'Create GitHub Release' using `gh release create "$RELEASE_TAG" "$ARCHIVE" --repo ${{github.repository}} --target main --title ... --notes ...`. Use GH_TOKEN: ${{ github.token }}.
 3. Tag format: `v${{ env.GAME_VERSION }}.${{ github.run_number }}` (e.g. v2.1.15). For repos without a GAME_VERSION env, use `v${{ github.run_number }}`.

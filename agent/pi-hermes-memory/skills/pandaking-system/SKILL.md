@@ -6,8 +6,8 @@ description: Core system context for Basti's workstation "Pandaking". ALWAYS con
 # Pandaking System Context
 
 ## Identity
-- Hostname: `Pandaking`, user: `dawasteh` (Windows home: `C:\Users\dawasteh`)
-- Primary OS: Windows 11. Secondary OS: Ubuntu 26.04 (dual-boot, used for ROCm/Linux-only AI workloads).
+- Windows hostname: `Pandaking`, user `Sebas` (home `C:\Users\Sebas`). Ubuntu hostname: `KillMicroslop`, user `dawasteh` (home `/home/dawasteh`, German locale — Desktop is `Schreibtisch`).
+- Primary OS: Windows 11. Secondary OS: Ubuntu 26.04 on its own solo-boot SSD (used for ROCm/Linux-only AI workloads).
 - Language: respond in German or English matching the user; keep code, comments and commit messages in English.
 
 ## Hardware (do not guess — these are fixed facts)
@@ -17,7 +17,7 @@ description: Core system context for Basti's workstation "Pandaking". ALWAYS con
 - iGPU: Intel (shows up as a third Vulkan device — usually exclude it)
 - RAM: 48 GB DDR5
 - Board: MSI MEG Z890 UNIFY-X, Secure Boot DISABLED
-- Storage: nine drives, multiple NVMe SSDs. Never assume a single ESP or single OS disk (see the `ubuntu-dualboot-boot-repair` skill before touching bootloaders).
+- Storage: nine drives, multiple NVMe SSDs. Never assume a single ESP or single OS disk (see the `dualboot-separated-drives` skill before touching bootloaders).
 
 **There is no NVIDIA hardware. Never propose CUDA-only solutions.** GPU paths are Vulkan (preferred on Windows) or ROCm/HIP (fragile on Windows for gfx1201, usable on Ubuntu).
 
@@ -27,7 +27,7 @@ description: Core system context for Basti's workstation "Pandaking". ALWAYS con
 - `H:\LAB\ai-local\...` — secondary lab area (e.g. `ocr_b17400_llama.cpp` experimental builds)
 - `I:\models` — GGUF model store, organized in named subfolders per family (Mistral, Gemma, Qwen, 1Bit-Bonsai, Frankenmerger, ...). Do NOT flatten into one folder.
 - `C:\LAB\llama-mcp-server\` — local filesystem MCP server project
-- `C:\Users\dawasteh\.pi\` — Pi Coding Agent config root (`agent\settings.json`, `agent\agents\`, `agent\prompts\`, `agent\extensions\`)
+- `C:\Users\Sebas\.pi\` — Pi Coding Agent config root on Windows (`agent\settings.json`, `agent\agents\`, `agent\prompts\`, `agent\extensions\`); on Ubuntu it is `/home/dawasteh/.pi/agent`, with the published GitHub clone at `/home/dawasteh/.pi/DaWastehs-Pi`.
 
 ## Toolchain versions
 - Visual Studio 2026 (v18.x, toolset v180). CMake generator string is `"Visual Studio 18 2026"` and requires CMake >= 4.2. Never emit `"Visual Studio 17 2022"`.
@@ -36,7 +36,7 @@ description: Core system context for Basti's workstation "Pandaking". ALWAYS con
 - Default shell: PowerShell. Follow the `powershell-windows-scripting` skill for script style.
 
 ## Standing rules
-1. Prefer local/free compute for cheap tasks; API (GLM 5.2) only for hard reasoning — see `pi-model-routing`.
+1. Prefer local/free compute (llama.cpp, mostly ~35B GGUFs, models rotate often) for cheap tasks; the cloud API model only for hard reasoning — see `pi-model-routing`.
 2. Before destructive disk/boot operations, verify device↔UUID mappings with `blkid`/`lsblk` output; never act on remembered mappings.
 3. Local llama-server default port: 1234. Check the port is free before starting a new instance.
 4. When file paths matter, ask which drive (`C:` vs `H:` LAB trees exist in parallel) instead of assuming.

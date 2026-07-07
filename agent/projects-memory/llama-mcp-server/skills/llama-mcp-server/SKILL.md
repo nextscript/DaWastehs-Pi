@@ -6,9 +6,9 @@ description: Working on the local filesystem MCP server for llama.cpp WebUI at C
 # Local Filesystem MCP Server (FastMCP / HTTP)
 
 ## Project layout
-- `C:\LAB\llama-mcp-server\server.py` + `run_server.bat` (+ venv)
-- `requirements.txt`: `mcp[cli]>=1.27.0` (pulls uvicorn/starlette)
-- Endpoint: `http://127.0.0.1:8765/mcp` — the `/mcp` path is REQUIRED; entering the bare root URL in the WebUI is the classic 404 cause.
+- `C:\LAB\llama-mcp-server\` (+ venv); GitHub remote is `github.com/DaWasteh/llama-mcp.git`.
+- Since the v0.8 server split there are TWO servers sharing `server_common.py` (HTTP bootstrap): filesystem server via `server_dateisystem.bat` on port 8765 (37 tools) and research server via `server_recherche.bat` on port 8766 (10 tools), each with its own `requirements-*.txt` (`mcp[cli]>=1.27.0` pulls uvicorn/starlette). Launcher .bat files are prefixed `server_` by convention.
+- Endpoints: `http://127.0.0.1:8765/mcp` and `http://127.0.0.1:8766/mcp` — the `/mcp` path is REQUIRED; entering the bare root URL in the WebUI is the classic 404 cause.
 
 ## Architecture decisions (keep these)
 - **FastMCP high-level API**, not the low-level Server class: tool schemas auto-generate from type hints + docstrings; no manual `inputSchema`, no `InitializationOptions` boilerplate (which required `server_name`, `server_version`, `capabilities` in SDK >= 1.0 and was the original crash cause).

@@ -6,7 +6,9 @@ description: Hybrid model routing policy for Pi Coding Agent - GLM 5.2 via API f
 # Pi Model Routing: GLM 5.2 (API) vs. Local (pi-llama-cpp)
 
 ## Policy (the one-sentence version)
-Scout and reviewer run LOCAL, oracle/planner/worker run on GLM 5.2 with local fallback, concurrency stays low (2) against a single llama.cpp instance. Cheap-by-default; escalate only when reasoning quality demands it.
+Scout and reviewer run LOCAL, oracle/planner/worker run on the cloud API model with local fallback, concurrency stays low (2) against a single llama.cpp instance. Cheap-by-default; escalate only when reasoning quality demands it.
+
+"GLM 5.2" below means "the currently configured cloud API model" — Basti swaps cloud and local models often; the routing policy stays the same regardless of which model fills each slot.
 
 ## Task → model mapping
 Route to **local** (pi-llama-cpp): repo scouting/context building, code review passes, summarization, log triage, boilerplate, doc lookup digests, anything high-volume/low-stakes.
@@ -14,12 +16,12 @@ Route to **GLM 5.2 (API)**: architecture decisions, planning, tricky implementat
 Always configure a local fallback so API outages/quota don't block work.
 
 ## Where the config lives
-- `C:\Users\dawasteh\.pi\agent\settings.json` → `subagents.defaultModel` = local model; `agentOverrides` for oracle/planner/worker → GLM 5.2 with `fallbackModels: [<local>]`.
+- `C:\Users\Sebas\.pi\agent\settings.json` (Ubuntu: `/home/dawasteh/.pi/agent/settings.json`) → `subagents.defaultModel` = local model; `agentOverrides` for oracle/planner/worker → GLM 5.2 with `fallbackModels: [<local>]`.
 - Precedence: per-run override > agentOverrides > agent frontmatter > subagents.defaultModel > session model.
 - Write model IDs fully qualified (`provider/model`) so nothing silently resolves to the wrong backend.
 - If a provider rejects `:high` thinking suffixes, set `"disableThinking": true` in the subagents block and re-enable per agent as needed.
-- Concurrency: `C:\Users\dawasteh\.pi\agent\extensions\subagent\config.json` → `parallel.concurrency: 2`, `globalConcurrencyLimit: 4`. Only raise when two llama-server instances (R9700 + 9070 XT) are running.
-- Custom agents: markdown files in `C:\Users\dawasteh\.pi\agent\agents\`; reusable prompt templates in `...\prompts\` (frontmatter may set `subagent`, `model`, `thinking`, `cwd`).
+- Concurrency: `C:\Users\Sebas\.pi\agent\extensions\subagent\config.json` → `parallel.concurrency: 2`, `globalConcurrencyLimit: 4`. Only raise when two llama-server instances (R9700 + 9070 XT) are running, or when the single server runs `-np` multi-slot (3 parallel subagents confirmed smooth — don't propose throttling then).
+- Custom agents: markdown files in `C:\Users\Sebas\.pi\agent\agents\`; reusable prompt templates in `...\prompts\` (frontmatter may set `subagent`, `model`, `thinking`, `cwd`).
 
 ## Operational commands
 - `/subagents-doctor` — verify subagents + intercom + prompt-template-model wiring.

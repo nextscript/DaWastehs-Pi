@@ -50,3 +50,6 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 *.swp
+.pi/agent/projects-memory/flora-bellydance/
+.pi/agent/projects-memory/lisas-dirndley/
+.pi/agent/projects-memory/GitHub/

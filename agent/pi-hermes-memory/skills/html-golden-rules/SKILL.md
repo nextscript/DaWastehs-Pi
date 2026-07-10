@@ -1,61 +1,25 @@
 ---
 name: html-golden-rules
-description: "Modern semantic and accessible HTML rules (2026). Use whenever writing or reviewing markup, templates, forms, dialogs, navigation, static HTML apps, or accessibility fixes."
+description: "Modern semantic and accessible HTML rules. Use whenever writing or reviewing markup, templates, forms, dialogs, navigation, static HTML apps, or accessibility fixes."
 ---
 
-# HTML Golden Rules (2026)
+# HTML Golden Rules
 
-## Document skeleton
-Every page starts with language, charset, viewport, and a real title:
+## Skeleton
+`<!doctype html>`, `<html lang="…">`, `<meta charset="utf-8">`, viewport meta, real `<title>`, content in `<main>`.
 
-```html
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>App name</title>
-</head>
-<body>
-  <main id="main-content">...</main>
-</body>
-</html>
-```
+## Semantics & native APIs
+- Elements by meaning: `header/main/footer/nav/article/section/aside`. Buttons for actions, anchors for navigation — no clickable `div`/`span`. Logical heading levels.
+- Prefer native `button`, `label`, `select`, `textarea`, `details/summary`, `dialog`, `popover` before custom ARIA widgets. Every form control gets an explicit label (`for`/`id`). ARIA supplements native HTML, never replaces it.
 
-## Semantics first
-- Choose elements by meaning, not appearance: `header`, `main`, `footer`, `nav`, `article`, `section`, `aside`.
-- Use buttons for actions and anchors for navigation. Do not build clickable `div`/`span` controls.
-- Keep heading levels logical; do not jump from `h1` to `h3` because it looks nicer.
+## Images & performance
+- Always set width/height (prevents layout shift); `loading="lazy" decoding="async"` below the fold; `fetchpriority="high"`/`preload` only for critical assets; AVIF via `<picture><source type="image/avif">`.
 
-## Native interactive APIs
-- Prefer `button`, `label`, `select`, `textarea`, `details/summary`, `dialog`, and `popover` before custom ARIA widgets.
-- Every form control gets an explicit label (`for`/`id`) or an accessible name.
-- ARIA supplements native HTML; it does not replace it.
-
-## Images and resource hints
-```html
-<picture>
-  <source srcset="hero.avif" type="image/avif">
-  <img src="hero.jpg" width="1280" height="720" alt="..." fetchpriority="high">
-</picture>
-<img src="thumb.jpg" loading="lazy" decoding="async" alt="...">
-```
-
-- Use `preload` only for critical assets; use `prefetch` for likely next navigations.
-- Always set image dimensions to prevent layout shift.
-
-## Security in markup
-- External links opened in a new tab need `rel="noopener noreferrer"`.
-- Escape text and attributes; never inject untrusted strings through `innerHTML` unless sanitized.
+## Security
+- External new-tab links need `rel="noopener noreferrer"`; never inject untrusted strings through `innerHTML` unsanitized.
 
 ## Pitfalls
-- Div soup instead of landmarks.
-- `tabindex > 0` breaks natural keyboard navigation.
-- Missing or redundant image alt text (`"image of"` is usually noise).
-- Form fields without labels; custom controls without keyboard support.
+Div soup instead of landmarks; `tabindex > 0`; form fields without labels; custom controls without keyboard support; redundant alt text ("image of…").
 
 ## Verification
-- W3C Validator reports no structural errors.
-- Lighthouse/accessibility score targets 100.
-- Keyboard-only test reaches every control with visible focus.
-- NVDA/VoiceOver announces a sensible page structure.
+W3C validator clean; Lighthouse accessibility 100; keyboard-only test reaches every control with visible focus.

@@ -6,31 +6,18 @@ description: "Performance rules for grid simulations and Windows system monitori
 # Grid Simulation & Windows System Monitoring
 
 ## Grid simulation (CPU)
-- Use flat 1D arrays and Structure of Arrays for hot cell state.
-- Double-buffer state when deterministic neighbor reads matter; otherwise document any intentional in-place bias.
-- Tile working sets conservatively. Keep sim-specific L1 targets (for example ≤32 KB including both buffers); CPU/cache facts live in `windows-cpp-golden-rules`.
-- SIMD target on Pandaking is AVX2/VNNI only; never emit AVX-512 code paths for the 285K.
+- Flat 1D arrays + SoA for hot cell state; AoS/nested arrays cause cache misses on large grids.
+- Double-buffer when deterministic neighbor reads matter; otherwise document the intentional in-place bias.
+- Tile working sets to L1 (e.g. ≤32 KB including both buffers); too large thrashes L1, too small wastes loop overhead. CPU/cache facts → `windows-cpp-golden-rules`.
+- SIMD target is AVX2/VNNI only — AVX-512 intrinsics crash the 285K (illegal instruction).
 
 ## GPU offload
-- Offload only when the grid is large enough to amortize transfers and synchronization.
-- Keep a CPU reference path for correctness checks.
-- AMD device roles and llama.cpp/Vulkan/HIP inference details belong in `amd-dual-gpu-inference`; do not duplicate the card table here.
+Offload only when the grid amortizes transfer/sync cost; always keep a CPU reference path for correctness. Device roles/inference → `amd-dual-gpu-inference`.
 
 ## System monitoring
-- GPU engine utilization on Windows uses PDH, not WMI. Use `windows-gpu-utilization-pdh` for the canonical call sequence and pitfalls.
-- WMI is acceptable for one-shot inventory/VRAM or slow async queries; never poll it synchronously in a UI thread.
-- Use adaptive polling intervals and waitable timers to keep idle CPU usage near zero.
-
-## Pitfalls
-- AVX-512 intrinsics on the 285K cause illegal-instruction crashes.
-- AoS or nested arrays cause cache misses on large grids.
-- Tiles too large thrash L1; tiles too small waste loop overhead.
-- Tight polling loops burn CPU; sync WMI blocks UI responsiveness.
-- Leaked COM/PDH handles accumulate over long sessions.
+- GPU engine utilization on Windows: PDH, not WMI → `windows-gpu-utilization-pdh` for the canonical sequence.
+- WMI only for one-shot inventory/VRAM or slow async queries; never poll synchronously in a UI thread.
+- Adaptive polling intervals + waitable timers: idle monitoring thread stays ~0 % CPU. Watch for leaked COM/PDH handles on long runs.
 
 ## Verification
-- VTune/Visual Studio Profiler confirms cache hit rates and tile-size behavior.
-- Disassembly shows AVX2 instructions and no 512-bit instructions.
-- Idle monitoring thread is ~0% CPU.
-- Long telemetry runs show stable handle/memory counts.
-- CPU and GPU paths match on deterministic test grids before trusting throughput numbers.
+Profiler confirms cache/tile behavior; disassembly shows AVX2 only (no 512-bit instructions); long telemetry runs show stable handle/memory counts; CPU and GPU paths match on deterministic test grids.

@@ -18,7 +18,7 @@ description: "Enable and validate native RDNA4 multi-GPU ComfyUI on H:/ComfyUI. 
 - Keep `MGPU_DISABLE_P2P=1`; Windows ROCm/WDDM uses CPU staging unless an explicit diagnostic run sets `MGPU_FORCE_P2P_QUERY=1`.
 
 ## Solo R9700 crash-avoidance profile
-Folded from the old solo skill: after any comfy_aimdo access violation, restart the whole Python process. The safe solo profile (`start-r9700.ps1`) uses `HIP_VISIBLE_DEVICES=0`, `CUDA_VISIBLE_DEVICES=0`, `--disable-dynamic-vram`, `--disable-async-offload`, `--disable-pinned-memory`, and `--reserve-vram 4`.
+After any comfy_aimdo access violation, restart the whole Python process — the first crash poisons the process; later LTXAVTEModel/ModelVBAR crashes in the same process are fallout, not independent bugs. The safe solo profile (`start-r9700.ps1`) uses `HIP_VISIBLE_DEVICES=0`, `CUDA_VISIBLE_DEVICES=0`, `--disable-dynamic-vram`, `--disable-async-offload`, `--disable-pinned-memory`, and `--reserve-vram 4`. On AMD, async offload defaults to ON — safe profiles must pass the explicit disable flags (omitting `--enable-dynamic-vram` is not enough). Do not re-enable comfy-aimdo DynamicVRAM for Wan 14B on Windows RDNA4 until upstream fixes the VBAR/VRAMBuffer access violation; startup logs must not contain "DynamicVRAM support detected and enabled" or "Using async weight offloading".
 
 ## Workflow routing
 - DisTorch donor testing: replace loaders with `CheckpointLoaderSimpleDisTorch2MultiGPU`, `UNETLoaderDisTorch2MultiGPU`, or `UnetLoaderGGUFDisTorch2MultiGPU`; use `compute_device=cuda:0`, `donor_device=cuda:1`, `virtual_vram_gb=4.0`, `eject_models=true`.
@@ -30,6 +30,7 @@ Folded from the old solo skill: after any comfy_aimdo access violation, restart 
 - Do not re-enable direct P2P or pinned memory while debugging stability.
 - PowerShell + Bash quoting can corrupt `$vars`; write probes to temp `.py` files when needed.
 - MultiGPU is not llama.cpp-style VRAM pooling; selectors/splits and DisTorch each solve different problems.
+- In comfy_aimdo crash stacks, ComfyUI-MultiGPU/TiledDiffusion frames are often wrappers only; the decisive frames are `comfy_aimdo.model_vbar.ModelVBAR` and `comfy_aimdo.vram_buffer.VRAMBuffer`.
 
 ## Verification
 ```powershell

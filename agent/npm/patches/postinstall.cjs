@@ -3,6 +3,21 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/** Published packages use JS since 0.68; source checkouts still use TS.
+ * Prefer executable JS, never declarations or source maps. Missing source in an
+ * installed package is an unsupported layout, not an absent package.
+ */
+function resolvePiSubagentsSource(packageRoot, relativePath) {
+  for (const extension of [".js", ".ts"]) {
+    const target = path.join(packageRoot, relativePath + extension);
+    if (fs.existsSync(target)) return target;
+  }
+  if (fs.existsSync(path.join(packageRoot, "package.json"))) {
+    throw new Error(`Unsupported pi-subagents layout in ${packageRoot}: missing ${relativePath}.{js,ts}.`);
+  }
+  return undefined;
+}
+
 /** Recognize workflow IDs that are always either a UUID or absent. */
 function hasFilesystemSafePiSubagentsAsyncWorkflowId(source) {
   return /\bconst\s+workflowRunId\s*=\s*(?:randomUUID\(\)|[^\r\n;?]+\?\s*randomUUID\(\)\s*:\s*undefined)\s*;/.test(source);
@@ -15,15 +30,9 @@ function hasFilesystemSafePiSubagentsAsyncWorkflowId(source) {
  * only the legacy `_id` implementation still needs rewriting.
  */
 function patchPiSubagents(packageRoot = path.join(__dirname, "..", "node_modules", "pi-subagents")) {
-  const executorPath = path.join(
-    packageRoot,
-    "src",
-    "runs",
-    "foreground",
-    "subagent-executor.ts",
-  );
+  const executorPath = resolvePiSubagentsSource(packageRoot, "src/runs/foreground/subagent-executor");
 
-  if (!fs.existsSync(executorPath)) {
+  if (!executorPath) {
     return { found: false, changed: false, path: executorPath };
   }
 
@@ -34,10 +43,12 @@ function patchPiSubagents(packageRoot = path.join(__dirname, "..", "node_modules
 
   const vulnerable = "const workflowRunId = _id;";
   if (!source.includes(vulnerable)) {
-    // Upstream changed the implementation. Do not overwrite unknown code.
-    return { found: true, changed: false, path: executorPath };
+    throw new Error(`Unsupported pi-subagents async workflow ID assignment in ${executorPath}.`);
   }
 
+  if (source.split(vulnerable).length !== 2 || !/import\s*\{[^}]*\brandomUUID\b[^}]*\}\s*from\s*["']node:crypto["']/.test(source)) {
+    throw new Error(`Unsupported pi-subagents UUID import or duplicate assignment in ${executorPath}.`);
+  }
   const patched = source.replace(
     vulnerable,
     "const workflowRunId = randomUUID(); // Filesystem-safe on Windows; tool-call ids may contain `|`.",
@@ -98,10 +109,28 @@ function patchPiSubagentsBuiltinPruningSource(source) {
   return { status: next === source ? "already-patched" : "patched", next };
 }
 
+/** Upstream now resolves declared tools in the child, not the parent registry.
+ * Recognize the inspected implementation without reintroducing the old filter.
+ * Ceilings, excludes and required-child validation must still be present.
+ */
+function hasNativePiSubagentsToolPlan(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, "").replace(/\s+/g, " ");
+  return /export function resolvePiLaunchToolPlan\(/.test(code)
+    && !/getHostBuiltinToolNames|hostAvailableSet|hostAvailableBuiltinTools/.test(code)
+    && code.split("const declaredBuiltinTools = ceilingFilteredBuiltinTools;").length === 2
+    && code.includes(".filter((tool) => !allowedToolSet || allowedToolSet.has(tool))")
+    && code.includes("const effectiveDeclaredBuiltinTools = declaredBuiltinTools.filter((tool) => !excludedToolSet.has(tool));")
+    && code.includes("const requiredChildTools = explicitToolAllowlist")
+    && code.includes("input.tools !== undefined ? effectiveDeclaredBuiltinTools : []");
+}
+
 function patchPiSubagentsHostTools(packageRoot = path.join(__dirname, "..", "node_modules", "pi-subagents")) {
-  const target = path.join(packageRoot, "src", "runs", "shared", "child-tool-plan.ts");
-  if (!fs.existsSync(target)) return { found: false, changed: false, path: target };
+  const target = resolvePiSubagentsSource(packageRoot, "src/runs/shared/child-tool-plan");
+  if (!target) return { found: false, changed: false, path: target };
   const source = fs.readFileSync(target, "utf8");
+  if (hasNativePiSubagentsToolPlan(source)) {
+    return { found: true, changed: false, path: target, mode: "upstream-native" };
+  }
   const result = patchPiSubagentsHostToolSource(source);
   if (result.status === "unsupported") {
     throw new Error(`Unsupported pi-subagents host tool discovery in ${target}; inspect upstream before updating the compatibility patch.`);
@@ -116,13 +145,13 @@ function patchPiSubagentsHostTools(packageRoot = path.join(__dirname, "..", "nod
 
 if (require.main === module) {
   const result = patchPiSubagents();
-  if (result.changed) {
-    console.log("Patched pi-subagents async workflow IDs for Windows-safe runtime paths.");
+  if (result.found) {
+    console.log(`pi-subagents async workflow IDs: ${result.changed ? "patched" : "filesystem-safe"} (${result.path}).`);
   }
   const hostTools = patchPiSubagentsHostTools();
-  if (hostTools.changed) {
-    console.log("Patched pi-subagents host tool discovery: recognize builtin overrides and preserve declared extension tools.");
+  if (hostTools.found) {
+    console.log(`pi-subagents tool plan: ${hostTools.mode ?? (hostTools.changed ? "patched" : "already compatible")} (${hostTools.path}).`);
   }
 }
 
-module.exports = { hasFilesystemSafePiSubagentsAsyncWorkflowId, patchPiSubagents, patchPiSubagentsHostToolSource, patchPiSubagentsBuiltinPruningSource, patchPiSubagentsHostTools };
+module.exports = { resolvePiSubagentsSource, hasFilesystemSafePiSubagentsAsyncWorkflowId, hasNativePiSubagentsToolPlan, patchPiSubagents, patchPiSubagentsHostToolSource, patchPiSubagentsBuiltinPruningSource, patchPiSubagentsHostTools };

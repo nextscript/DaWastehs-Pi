@@ -47,7 +47,8 @@ import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
-import { patchPiSubagentsHostTools } from "../npm/patches/postinstall.cjs";
+import { patchPiSubagents, patchPiSubagentsHostTools, hasFilesystemSafePiSubagentsAsyncWorkflowId } from "../npm/patches/postinstall.cjs";
+export { hasFilesystemSafePiSubagentsAsyncWorkflowId };
 
 const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
 const LLAMA_CPP_PACKAGE_NAME = "pi-llama-cpp";
@@ -109,7 +110,6 @@ export function updateAuthorizationAllows(
   return !!authorization && scopeAllowed && (!force || authorization.force);
 }
 
-/** Recognize workflow IDs that are always either a UUID or absent. */
 /**
  * Rewrites pi-llama-cpp's fallback server URL in `src/constants.ts`.
  * pi-llama-cpp ≤ 0.9 exported `DEFAULT_LLAMA_SERVER_URL`; 0.10 renamed it to
@@ -122,10 +122,6 @@ export function patchLlamaServerUrlSource(source: string, url: string): { found:
   const match = pattern.exec(source);
   if (!match) return { found: false, next: source };
   return { found: true, next: source.replace(pattern, `export const ${match[1]} = "${url}";`) };
-}
-
-export function hasFilesystemSafePiSubagentsAsyncWorkflowId(source: string): boolean {
-  return /\bconst\s+workflowRunId\s*=\s*(?:randomUUID\(\)|[^\r\n;?]+\?\s*randomUUID\(\)\s*:\s*undefined)\s*;/.test(source);
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -375,36 +371,16 @@ export default async function (pi: ExtensionAPI) {
   async function patchPiSubagentsAsyncWorkflowId(
     packageRoot: string,
   ): Promise<{ found: boolean; ok: boolean; message?: string }> {
-    const executorPath = join(packageRoot, "src", "runs", "foreground", "subagent-executor.ts");
-    let source: string;
     try {
-      source = await readFile(executorPath, "utf8");
+      const patch = patchPiSubagents(packageRoot);
+      if (!patch.found) return { found: false, ok: true };
+      return {
+        found: true, ok: true,
+        message: `✅ ${PI_SUBAGENTS_PACKAGE_NAME} async workflow IDs are filesystem-safe${patch.changed ? " (patched)" : ""} (${patch.path}).`,
+      };
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === "ENOENT") return { found: false, ok: true };
-      return {
-        found: true,
-        ok: false,
-        message: `⚠️ Could not read ${executorPath}: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      return { found: true, ok: false, message: `⚠️ ${err instanceof Error ? err.message : String(err)}` };
     }
-
-    if (hasFilesystemSafePiSubagentsAsyncWorkflowId(source)) {
-      return { found: true, ok: true, message: `✅ ${PI_SUBAGENTS_PACKAGE_NAME} async workflow IDs are filesystem-safe.` };
-    }
-    if (!source.includes("const workflowRunId = _id;")) {
-      return {
-        found: true,
-        ok: false,
-        message: `⚠️ Could not find the async workflow ID assignment in ${executorPath}.`,
-      };
-    }
-
-    const next = source.replace(
-      "const workflowRunId = _id;",
-      "const workflowRunId = randomUUID(); // Filesystem-safe on Windows; tool-call ids may contain `|`.",
-    );
-    await writeFile(executorPath, next, "utf8");
-    return { found: true, ok: true, message: `✅ Patched ${executorPath} to use filesystem-safe async workflow IDs.` };
   }
 
   async function ensurePiSubagentsAsyncWorkflowIdPatch(cwd: string): Promise<{ ok: boolean; text: string }> {
@@ -420,7 +396,9 @@ export default async function (pi: ExtensionAPI) {
       try {
         const hostTools = patchPiSubagentsHostTools(root);
         if (hostTools.found) {
-          messages.push(`✅ ${PI_SUBAGENTS_PACKAGE_NAME} host tool discovery recognizes builtin overrides and preserves declared extension tools${hostTools.changed ? " (patched)" : ""}.`);
+          messages.push(hostTools.mode === "upstream-native"
+            ? `✅ ${PI_SUBAGENTS_PACKAGE_NAME} uses native child tool validation; the legacy host-discovery patch is not needed.`
+            : `✅ ${PI_SUBAGENTS_PACKAGE_NAME} host tool discovery recognizes builtin overrides and preserves declared extension tools${hostTools.changed ? " (patched)" : ""}.`);
         } else {
           ok = false;
           messages.push(`⚠️ Could not find host tool discovery in ${root}; inspect the installed package.`);

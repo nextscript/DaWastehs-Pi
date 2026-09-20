@@ -131,7 +131,8 @@ test("both repairs are validated before modifying package source", async () => {
 
 test("updater and postinstall share the same repair and include its failure in update status", async () => {
   const source = await readFile(new URL("../extensions/pi-autoupdate.ts", import.meta.url), "utf8");
-  assert.match(source, /import \{ patchPiSubagentsHostTools \} from "\.\.\/npm\/patches\/postinstall\.cjs"/);
+  assert.match(source, /import \{[^}]*patchPiSubagentsHostTools[^}]*\} from "\.\.\/npm\/patches\/postinstall\.cjs"/);
+  assert.match(source, /const patch = patchPiSubagents\(packageRoot\)/);
   assert.match(source, /patchPiSubagentsHostTools\(root\)/);
   assert.match(source, /Unsupported|err instanceof Error/);
 });

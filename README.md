@@ -306,6 +306,7 @@ for details:
 - `@casualjim/pi-heimdall` — platform sandbox integration
 - `@gaodes/pi-graphify`, `@xynogen/pix-optimizer` — graph and prompt/context helpers
 - `pi-prompt-template-model` — prompt-template model selection
+- `pi-goal-x` — explicitly requested persistent goals
 
 The current installed package manifest is also tracked in
 `agent/npm/package.json` / `agent/npm/package-lock.json` so the repository
@@ -523,6 +524,42 @@ The runtime dependency audit still reports **two pre-existing findings**:
 the same findings; this scoped repair does not remediate them. The editor-only
 production audit reports zero findings.
 
+#### v3.2: Pi 0.86.1 and compiled extension packages
+
+Validated against the latest published Pi **0.86.1** and pi-subagents **0.70.0**.
+The updater's “pi-subagents was not found” message was a detection bug, not a
+missing installation: since 0.68 the npm package ships compiled `.js` instead
+of `.ts`. Update and postinstall now share the same resolver, prefer executable
+JavaScript, support legacy TypeScript checkouts, and never mistake `.d.ts` or
+source maps for executable files. A present package with an unknown layout or
+UUID implementation fails visibly instead of being reported as absent/safe.
+
+Current upstream resolves tool availability inside the child. The compatibility
+check recognizes that implementation and leaves it untouched; it does not
+reintroduce the obsolete host filter. Legacy 0.67 repairs remain supported.
+Tests cover both layouts, JS precedence, missing files, CRLF, idempotence,
+unsupported implementations, and preservation of ceilings/exclusions.
+
+Editor/test dependencies are pinned to Pi 0.86.1 (previously the local lockfile
+still tested 0.84.4). Both the local SDK and the globally installed Pi passed
+`npm run test:installed`: all **22 extension entry points** (seven local,
+fifteen from fourteen external packages), **47 registered tools**, startup,
+reload, shutdown, read-only subagent/todo/goal/intercom calls, and the actual
+compiled child tool planner. **78 unit tests and typecheck pass.** This is not
+an end-to-end test of every remote provider, interactive dialog, or LLM child
+launch; the integration smoke makes no LLM calls and launches no agents.
+
+The two previous npm audit findings are fixed with compatible transitive
+updates: `hono` **4.13.8** and `smol-toml` **1.8.0**. Both tracked dependency
+sets audit clean. Release-snapshot skill lint has no errors; unrelated local
+Half-Life/Godot skill edits are excluded from this release.
+
+Restart Pi after its core update; `/reload` suffices for extension-only changes.
+Windows `EPERM` cleanup warnings about an old native console/clipboard DLL can
+occur while older Pi processes still hold it open. They do not mean the newly
+installed version failed to load; avoid deleting loaded DLLs or killing other
+sessions merely to silence cleanup warnings.
+
 #### Migration and validation
 
 Live validation caught two nesting failures: an agent omitted the required
@@ -601,10 +638,17 @@ Validate both the local extensions and runtime dependency set with:
 ```bash
 npm run typecheck
 npm test
+npm run test:installed   # explicit check of the real installed extension set
 npm run skill:lint
 npm audit --omit=dev
 npm --prefix npm audit --omit=dev
 ```
+
+`test:installed` uses the real package configuration and emits normal session
+start/reload/shutdown events (packages may maintain their runtime state). It
+makes no LLM calls and launches no child agents. Pass an absolute Pi SDK entry
+path to test a global host instead of the editor copy:
+`npm run test:installed -- /path/to/pi-coding-agent/dist/index.js`.
 
 These are `devDependencies` and are not used by Pi at runtime. If you prefer not
 to add a local `node_modules`, the errors are safe to ignore.

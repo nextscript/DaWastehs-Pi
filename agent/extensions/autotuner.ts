@@ -28,6 +28,15 @@
  * Pi process loaded is unloaded again when Pi quits (not on /new, /resume,
  * /fork or /reload); AUTOTUNER_UNLOAD_ON_EXIT=0 keeps it running.
  *
+ * Token policy: AutoTuner advertises a fixed `max_tokens` (16384) that
+ * reasoning and the answer would share. This provider ignores it and lets Pi
+ * size `max_tokens` from the remaining context on every request, so a model
+ * may use its natural context. Pi's thinking level is not enforced as a hard
+ * cut either: llama-server's `thinking_budget_tokens` would close the thinking
+ * block once spent, so the level's budget is rewritten into a request in the
+ * system prompt and only a safety net near the end of the context stays hard.
+ * AUTOTUNER_THINKING_BUDGET=hard keeps llama-server's cut, =off sends nothing.
+ *
  * `/autotuner` offers an interactive switcher plus status, models, switch,
  * stop, runtimes, refresh, health and help subcommands.
  */
@@ -456,10 +465,6 @@ export function mapModel(raw: unknown): ProviderModelConfig | undefined {
 		typeof model.context_window === "number" && Number.isFinite(model.context_window)
 			? Math.max(1024, Math.floor(model.context_window))
 			: 8192;
-	const maxTokens =
-		typeof model.max_tokens === "number" && Number.isFinite(model.max_tokens)
-			? Math.max(256, Math.min(contextWindow, Math.floor(model.max_tokens)))
-			: Math.max(256, Math.min(16384, Math.floor(contextWindow / 2)));
 	const advertised = Array.isArray(model.input)
 		? model.input.filter((value): value is "text" | "image" => value === "text" || value === "image")
 		: [];
@@ -468,12 +473,17 @@ export function mapModel(raw: unknown): ProviderModelConfig | undefined {
 		name: typeof model.name === "string" && model.name ? model.name : model.id,
 		// Mirror AutoTuner's scanner verdict so Pi renders reasoning_content as
 		// thinking blocks. AutoTuner's saved reasoning launch setting stays
-		// authoritative: no reasoning_effort or budget fields are sent.
+		// authoritative for whether the model thinks: no reasoning_effort is sent.
 		reasoning: model.reasoning === true,
 		input: advertised.length > 0 ? advertised : ["text"],
 		cost: COST,
 		contextWindow,
-		maxTokens,
+		// AutoTuner's catalogue carries a fixed max_tokens of 16384 that reasoning
+		// and the answer would share; three local test runs ended in stopReason
+		// "length" with 16384 tokens of pure thinking. The whole context is the
+		// ceiling instead: pi-ai clamps max_tokens to the remaining context (minus
+		// a 4096-token safety margin) on every request.
+		maxTokens: contextWindow,
 		compat: {
 			supportsStore: false,
 			supportsDeveloperRole: false,
@@ -481,8 +491,88 @@ export function mapModel(raw: unknown): ProviderModelConfig | undefined {
 			supportsUsageInStreaming: true,
 			supportsStrictMode: false,
 			maxTokensField: "max_tokens",
+			// pi-ai resolves the thinking level's budget (settings.thinkingBudgets)
+			// into this llama-server field; before_provider_request then applies
+			// the thinking policy (soft request by default, see applyThinkingPolicy).
+			thinkingTokenBudgetField: "thinking_budget_tokens",
 		},
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Thinking policy
+
+export type ThinkingBudgetMode = "soft" | "hard" | "off";
+
+/**
+ * Answer room the safety net keeps free of reasoning at the very end of the
+ * response. It only matters once a reasoning phase has consumed almost the
+ * whole remaining context, where the alternative is a truncated response.
+ */
+export const ANSWER_RESERVE_TOKENS = 8192;
+
+/** AUTOTUNER_THINKING_BUDGET=soft (default) | hard | off. */
+export function thinkingBudgetMode(env: NodeJS.ProcessEnv = process.env): ThinkingBudgetMode {
+	const value = env.AUTOTUNER_THINKING_BUDGET?.trim().toLowerCase();
+	return value === "hard" || value === "off" ? value : "soft";
+}
+
+export function thinkingGuidance(budget: number, level?: string): string {
+	const named = level
+		? `Pi's thinking level is "${level}", a soft budget of about ${budget} reasoning tokens.`
+		: `The soft budget for this request is about ${budget} reasoning tokens.`;
+	return `Reasoning guidance: ${named} Aim to stay within it, but take the reasoning room a problem genuinely needs; this guidance never cuts your reasoning or your answer off.`;
+}
+
+interface ChatPayload {
+	messages?: unknown;
+	max_tokens?: unknown;
+	thinking_budget_tokens?: unknown;
+}
+
+interface ChatMessage {
+	role?: unknown;
+	content?: unknown;
+}
+
+/**
+ * Applies the thinking policy to an OpenAI-style chat payload. Returns the
+ * replacement payload, or undefined when the request should go out unchanged.
+ *
+ * llama-server treats `thinking_budget_tokens` as a hard cut: once spent it
+ * closes the thinking block and the model must answer. Local models should get
+ * the reasoning room a problem needs, so the level's budget becomes a request
+ * in the system prompt ("soft"). A safety net stays hard near the end of the
+ * response so a runaway reasoning phase still ends in an answer instead of
+ * stopReason "length". "hard" keeps pi-ai's cut; "off" sends no budget at all.
+ * Thinking level "max" gets the safety net only.
+ */
+export function applyThinkingPolicy(payload: unknown, mode: ThinkingBudgetMode, level?: string): unknown {
+	if (!payload || typeof payload !== "object") return undefined;
+	const request = payload as ChatPayload;
+	if (typeof request.thinking_budget_tokens !== "number" || mode === "hard") return undefined;
+	const { thinking_budget_tokens: budget, ...rest } = request;
+	if (mode === "off") return rest;
+	const result: ChatPayload = { ...rest };
+	if (level !== "max") {
+		const guidance = thinkingGuidance(budget, level);
+		const messages: unknown[] = Array.isArray(rest.messages) ? [...rest.messages] : [];
+		const first = messages[0] as ChatMessage | undefined;
+		const leadsWithSystem = first !== undefined && (first.role === "system" || first.role === "developer");
+		if (leadsWithSystem && typeof first.content === "string") {
+			messages[0] = { ...first, content: `${first.content}\n\n${guidance}` };
+		} else if (leadsWithSystem && Array.isArray(first.content)) {
+			messages[0] = { ...first, content: [...first.content, { type: "text", text: guidance }] };
+		} else {
+			messages.unshift({ role: "system", content: guidance });
+		}
+		result.messages = messages;
+	}
+	const maxTokens = typeof rest.max_tokens === "number" && Number.isFinite(rest.max_tokens) ? rest.max_tokens : undefined;
+	if (maxTokens !== undefined && maxTokens > ANSWER_RESERVE_TOKENS * 2) {
+		result.thinking_budget_tokens = Math.floor(maxTokens) - ANSWER_RESERVE_TOKENS;
+	}
+	return result;
 }
 
 export async function fetchModels(gateway: GatewayConfig, signal?: AbortSignal): Promise<ProviderModelConfig[]> {
@@ -841,7 +931,7 @@ export default async function (pi: ExtensionAPI) {
 			// visible during a long load and reports failures before the request.
 			await switchModel(state, ctx, modelId).catch(() => undefined);
 		}
-		return undefined;
+		return applyThinkingPolicy(event.payload, thinkingBudgetMode(), ctx.thinkingLevel);
 	});
 
 	pi.on("session_shutdown", async (event) => {

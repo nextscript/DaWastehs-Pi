@@ -178,10 +178,25 @@ per-model launch setting; the extension only asks for a model ID.
   another client) is never touched, AutoTuner's `model_busy` answer for in-flight
   requests is respected, and `AUTOTUNER_UNLOAD_ON_EXIT=0` disables the behaviour.
 - **Reasoning.** Pi-level `reasoning` mirrors AutoTuner's scanner verdict so
-  `reasoning_content` renders as thinking blocks; no `reasoning_effort` or
-  budget fields are sent because AutoTuner's saved reasoning launch setting
-  stays authoritative. Chat traffic goes through AutoTuner's OpenAI proxy on
+  `reasoning_content` renders as thinking blocks. No `reasoning_effort` is
+  sent because AutoTuner's saved reasoning launch setting decides whether the
+  model thinks at all. Chat traffic goes through AutoTuner's OpenAI proxy on
   port 1233; llama-server itself keeps listening on 1234.
+- **No artificial token limits (v3.3).** AutoTuner's catalogue advertises a
+  fixed `max_tokens` of 16,384 that reasoning and the answer would share; three
+  local test runs ended with 16,384 tokens of pure thinking and "Response was
+  truncated before completion." The provider now uses the whole context window
+  as the ceiling and pi-ai sizes `max_tokens` from the remaining context on
+  every request, so a model may use its natural context. Pi's thinking level is
+  not a hard cut either: llama-server's `thinking_budget_tokens` closes the
+  thinking block once spent, so the level's budget (`thinkingBudgets` in
+  settings) is rewritten into a request at the end of the system prompt
+  ("aim to stay within about N reasoning tokens, take the room a problem
+  genuinely needs"). Only a safety net stays hard: 8,192 tokens before the end
+  of the response the thinking block is closed so a runaway reasoning phase
+  still ends in an answer instead of a truncated one. Level `max` gets the
+  safety net only. `AUTOTUNER_THINKING_BUDGET=hard` keeps llama-server's hard
+  cut at the level's budget, `=off` sends no budget field at all.
 
 When the API is off or AutoTuner is closed, the provider registers empty and
 stays quiet; `/autotuner status`, `/autotuner health`, and a startup warning
@@ -523,6 +538,29 @@ The runtime dependency audit still reports **two pre-existing findings**:
 `hono` 4.13.1 (moderate) and `smol-toml` 1.7.0 (high). The v3.0 lockfile produces
 the same findings; this scoped repair does not remediate them. The editor-only
 production audit reports zero findings.
+
+#### v3.3: Natural context for AutoTuner models
+
+Three local model tests (Agnes 3.0 Flash, Qwen3.8-27B via the AutoTuner
+provider) ended in "Response was truncated before completion." during
+thinking. Cause: AutoTuner's catalogue reports a fixed `max_tokens` of 16,384
+per model, the extension passed it on as the response ceiling, and no thinking
+budget reached llama-server, so every response was 16,384 tokens of reasoning
+with no answer or tool call (stopReason `length`).
+
+The provider now ignores AutoTuner's `max_tokens` and uses the context window
+as the ceiling; pi-ai already clamps `max_tokens` to the remaining context per
+request. Pi's thinking level is delivered as a soft request in the system
+prompt instead of llama-server's hard `thinking_budget_tokens` cut, with a hard
+safety net only 8,192 tokens before the end of the response.
+`AUTOTUNER_THINKING_BUDGET=hard|off` selects the old cut or no budget at all.
+Details under **Local models through AutoTuner**.
+
+Validation: 79 unit tests and typecheck pass; the request shape was verified
+against a recording fake server (pi-ai sends `max_tokens` clamped to the
+context plus the level budget, the hook rewrites it). No live llama-server run
+in this release. Unrelated Half-Life/Godot skill and settings edits remain
+outside this release.
 
 #### v3.2: Pi 0.86.1 and compiled extension packages
 

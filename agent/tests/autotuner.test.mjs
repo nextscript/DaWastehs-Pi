@@ -262,12 +262,15 @@ test("provider registration maps the catalogue, keeps the list offline, and refr
 		assert.deepEqual(
 			registration.config.models.map((model) => [model.id, model.reasoning, model.input, model.contextWindow, model.maxTokens]),
 			[
-				["qwen3.8-27b", true, ["text"], 32768, 8192],
-				["gemma-4-31b", false, ["text", "image"], 131072, 16384],
+				// maxTokens is the whole context: AutoTuner's fixed max_tokens (8192 / 16384 here) is not a ceiling.
+				["qwen3.8-27b", true, ["text"], 32768, 32768],
+				["gemma-4-31b", false, ["text", "image"], 131072, 131072],
 			],
 		);
 		assert.equal(registration.config.models[0].compat.supportsReasoningEffort, false);
 		assert.equal(registration.config.models[0].compat.maxTokensField, "max_tokens");
+		// pi-ai resolves the thinking level's budget into this field; the request hook turns it into a soft request.
+		assert.equal(registration.config.models[0].compat.thinkingTokenBudgetField, "thinking_budget_tokens");
 
 		// Offline refresh (Pi startup) returns the known list without network access.
 		const callsBefore = gateway.calls.length;
@@ -361,6 +364,66 @@ test("model_select pre-switches through the control API and before_provider_requ
 		ctx.model = { provider: "autotuner", id: "mmproj-only" };
 		await handlers.get("before_provider_request")({ type: "before_provider_request", payload: { model: "mmproj-only" } }, ctx);
 		assert.ok(notifications.some((entry) => entry.level === "error" && /model_not_runnable|projector/.test(entry.message)));
+	} finally {
+		await gateway.close();
+	}
+});
+
+test("before_provider_request turns Pi's hard thinking budget into a soft request and keeps only a safety net", async () => {
+	const gateway = await startFakeGateway({ active: "qwen3.8-27b" });
+	try {
+		const { api, handlers } = fakePi();
+		const module = await import("../extensions/autotuner.ts");
+		await withEnv({ ...cleanEnv, AUTOTUNER_API_URL: gateway.root, AUTOTUNER_API_KEY: TOKEN }, () => module.default(api));
+		const { ctx } = fakeContext({ model: { provider: "autotuner", id: "qwen3.8-27b" }, thinkingLevel: "medium" });
+		const hook = handlers.get("before_provider_request");
+		const request = (extra) => ({
+			model: "qwen3.8-27b",
+			messages: [
+				{ role: "system", content: "You are Pi." },
+				{ role: "user", content: "hi" },
+			],
+			max_tokens: 250000,
+			...extra,
+		});
+
+		// Soft by default: the level's budget moves into the system prompt, the hard field becomes a safety net.
+		const payload = request({ thinking_budget_tokens: 10240 });
+		const soft = await withEnv({ AUTOTUNER_THINKING_BUDGET: undefined }, () => hook({ type: "before_provider_request", payload }, ctx));
+		assert.equal(soft.thinking_budget_tokens, 250000 - module.ANSWER_RESERVE_TOKENS);
+		assert.equal(soft.messages[0].role, "system");
+		assert.match(soft.messages[0].content, /^You are Pi\.\n\nReasoning guidance: Pi's thinking level is "medium", a soft budget of about 10240 reasoning tokens\./);
+		assert.match(soft.messages[0].content, /never cuts your reasoning or your answer off/);
+		assert.deepEqual(soft.messages[1], { role: "user", content: "hi" });
+		assert.equal(soft.max_tokens, 250000);
+		assert.equal(payload.thinking_budget_tokens, 10240, "the original payload is not mutated");
+		assert.equal(payload.messages[0].content, "You are Pi.");
+
+		// No answer room to protect: a short response ceiling gets the request but no hard field.
+		const short = await hook({ type: "before_provider_request", payload: request({ thinking_budget_tokens: 4096, max_tokens: 12000 }) }, ctx);
+		assert.equal("thinking_budget_tokens" in short, false);
+		assert.match(short.messages[0].content, /about 4096 reasoning tokens/);
+
+		// Without a system message the guidance becomes one; level "max" gets the safety net only.
+		const noSystem = await hook({ type: "before_provider_request", payload: { model: "qwen3.8-27b", messages: [{ role: "user", content: "hi" }], max_tokens: 250000, thinking_budget_tokens: 32768 } }, ctx);
+		assert.equal(noSystem.messages[0].role, "system");
+		assert.match(noSystem.messages[0].content, /^Reasoning guidance:/);
+		ctx.thinkingLevel = "max";
+		const max = await hook({ type: "before_provider_request", payload: request({ thinking_budget_tokens: 32768 }) }, ctx);
+		assert.equal(max.messages[0].content, "You are Pi.");
+		assert.equal(max.thinking_budget_tokens, 250000 - module.ANSWER_RESERVE_TOKENS);
+		ctx.thinkingLevel = "medium";
+
+		// Thinking off (pi-ai sends no budget) goes out unchanged.
+		assert.equal(await hook({ type: "before_provider_request", payload: request() }, ctx), undefined);
+
+		// AUTOTUNER_THINKING_BUDGET=hard keeps llama-server's cut, =off removes the field without a request.
+		const hard = await withEnv({ AUTOTUNER_THINKING_BUDGET: "hard" }, () => hook({ type: "before_provider_request", payload: request({ thinking_budget_tokens: 10240 }) }, ctx));
+		assert.equal(hard, undefined);
+		const off = await withEnv({ AUTOTUNER_THINKING_BUDGET: "off" }, () => hook({ type: "before_provider_request", payload: request({ thinking_budget_tokens: 10240 }) }, ctx));
+		assert.equal("thinking_budget_tokens" in off, false);
+		assert.equal(off.messages[0].content, "You are Pi.");
+
 	} finally {
 		await gateway.close();
 	}

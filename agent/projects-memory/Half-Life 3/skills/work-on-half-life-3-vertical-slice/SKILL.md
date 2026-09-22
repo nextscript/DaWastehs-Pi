@@ -1,15 +1,16 @@
 ---
 name: "work-on-half-life-3-vertical-slice"
-created: "2026-07-09"
 description: "Develop and verify the Half-Life 3 Borealis Signal browser vertical slice, including its expanded mountain level, combat audio, rendering, physics, and smoke gates. Do not use for unrelated work."
-version: 5
-updated: "2026-08-17"
+version: 6
+created: "2026-07-09"
+updated: "2026-09-12"
 skill-governor-tier: auto
 skill-governor-risk: medium
 ---
 ## Governance
 Explicit task requirements and repository evidence override this skill; use only the portion relevant to the current change and treat historical versions, counts, and paths as evidence to re-check.
 
+This skill describes the HISTORICAL Borealis Signal browser implementation. The canonical active project is now Vesper Signal under `L:/LAB/Half-Life 3/game` (Godot); root Start-Game launches that project, not historical dist/. For active Godot work use the project skill `work-on-vesper-signal-godot` and current game/docs. Browser/npm/Playwright gates below do not accept Godot changes.
 ## When to Use
 Use for the Borealis Signal rendering, weapon/audio, mountain-level, physics, or matching smoke-test path. Select only the section corresponding to the requested change.
 

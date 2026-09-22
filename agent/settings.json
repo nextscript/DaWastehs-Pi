@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.86.1",
+  "lastChangelogVersion": "0.87.0",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-astra",
   "llamaServerUrl": "http://127.0.0.1:1234",
@@ -103,6 +103,11 @@
     "openai-codex/gpt-5.6-sol": "high",
     "openai-codex/gpt-5.6-terra": "high",
     "openai-codex/gpt-5.6-luna": "high",
-    "openai-codex/gpt-5.5": "xhigh"
+    "openai-codex/gpt-5.5": "xhigh",
+    "autotuner/qwen3.8-flash-next-ud-q2_k_xl--c2f35f125e": "medium",
+    "llama-server=http://127.0.0.1:1234/Agnes-3.0-Flash-Preview-MTP-imatrix-Q4_0-ROCmFP4-COHERENT": "medium",
+    "autotuner/qwen3.8-27b-iq4_xs-3.84bpw--d304aca9cd": "medium",
+    "autotuner/agnes-3.0-flash-preview-mtp-imatrix-q4_0-rocmfp4-coherent--a49df6990b": "medium",
+    "autotuner/agnes-3.0-flash-preview-mtp-imatrix-q4_0-rocmfp4-strix_lean--fc38b3ca9d": "medium"
   }
 }

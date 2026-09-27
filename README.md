@@ -83,7 +83,11 @@ On Windows, package updates pause pi-intercom's detached broker and hold its
 respawn lock while npm replaces packages. Cancellation propagates through
 network checks and child processes; the broker working-directory patch is
 re-applied before the lock is released, including after partial failures or
-user cancellation. It also preserves a Windows compatibility patch for
+user cancellation. Since v3.4, the check also recognizes pi-intercom's upstream
+`getIntercomDirPath(agentDir)` cwd and leaves its environment-aware behavior
+unchanged. Legacy `extensionDir` launchers are still repaired; unknown or
+ambiguous assignments fail visibly instead of being silently accepted.
+It also preserves a Windows compatibility patch for
 `pi-subagents`: async workflows use an independent UUID for their runtime
 directory because Pi 0.84 tool-call IDs may contain the Windows-invalid `|`
 character. The tracked `agent/npm/patches/postinstall.cjs` applies this fix
@@ -538,6 +542,38 @@ The runtime dependency audit still reports **two pre-existing findings**:
 `hono` 4.13.1 (moderate) and `smol-toml` 1.7.0 (high). The v3.0 lockfile produces
 the same findings; this scoped repair does not remediate them. The editor-only
 production audit reports zero findings.
+
+#### v3.4: Recognize pi-intercom's upstream update-safe launcher
+
+The npm update completed successfully, but `/update` reported failure during
+its post-update and recovery checks. pi-intercom **0.15.0** already uses a safe
+runtime working directory through `getIntercomDirPath(agentDir)`; our check
+only recognized `getIntercomDirPath()` or the old `extensionDir` assignment.
+The updater now recognizes both safe forms without rewriting them, preserving
+upstream's environment-specific agent directory. Legacy launchers are still
+patched idempotently, and unknown or multiple cwd assignments fail closed.
+Windows broker pause, lock heartbeat, cancellation and recovery-before-unlock
+remain unchanged.
+
+This release also includes all pending package/configuration changes:
+`@casualjim/pi-heimdall` **0.3.10**, `pi-goal-x` **0.31.9**, `pi-intercom`
+**0.15.0**, `pi-llama-cpp` **0.15.0**, `pi-mcp-adapter` **3.0.0**,
+`pi-subagents` **0.72.1**, `pi-web-access` **0.32.0**, their lockfile updates,
+and Pi's recorded changelog version **0.87.1**.
+
+Validation: **86 unit tests** and typecheck pass. Seven new regressions cover
+upstream/legacy cwd forms, CRLF, spacing, idempotence, misleading comments,
+unknown implementations and ambiguous assignments. The real freshly loaded
+`/update` handler completed successfully on Windows with Pi **0.87.1**, all
+post-update checks passed, and the maintenance lock was released. Installed
+extension smoke passed for **22 entry points / 49 tools**, including
+startup/reload/shutdown and read-only coordination tools. Its standalone SDK
+harness emitted a non-blocking pi-subagents host-verification warning; no
+LLM calls or child-agent launches were exercised. Both production dependency
+audits report **zero vulnerabilities**. Skill lint: **0 errors, 25 warnings**.
+
+Run **`/reload`** in existing Pi sessions to load the repaired updater; restart
+Pi to ensure all newly installed package versions are loaded.
 
 #### v3.3: Natural context for AutoTuner models
 

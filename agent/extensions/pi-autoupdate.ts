@@ -57,7 +57,6 @@ const HERMES_MEMORY_PACKAGE_NAME = "pi-hermes-memory";
 const HEIMDALL_PACKAGE_NAME = "@casualjim/pi-heimdall";
 const PI_INTERCOM_PACKAGE_NAME = "pi-intercom";
 const PI_SUBAGENTS_PACKAGE_NAME = "pi-subagents";
-const INTERCOM_BROKER_CWD_LINE = "cwd: getIntercomDirPath(),";
 const INTERCOM_SPAWN_LOCK_HEARTBEAT_MS = 2_000;
 const INTERCOM_SPAWN_LOCK_STALE_MS = 10_000;
 const PIX_OPTIMIZER_PACKAGE_PATH = ["@xynogen", "pix-optimizer"];
@@ -122,6 +121,28 @@ export function patchLlamaServerUrlSource(source: string, url: string): { found:
   const match = pattern.exec(source);
   if (!match) return { found: false, next: source };
   return { found: true, next: source.replace(pattern, `export const ${match[1]} = "${url}";`) };
+}
+
+/**
+ * Recognize the broker's runtime cwd without rewriting upstream's env-aware
+ * getIntercomDirPath(agentDir) form (pi-intercom 0.15). Older launchers used
+ * extensionDir and still need the local fix. Unknown/ambiguous forms fail closed.
+ */
+export function patchPiIntercomBrokerCwdSource(source: string): { found: boolean; next: string } {
+  const assignments = [...source.matchAll(/^([ \t]*cwd[ \t]*:[ \t]*)([^\r\n,]+),/gm)];
+  if (assignments.length !== 1) return { found: false, next: source };
+  const assignment = assignments[0];
+  const value = assignment[2].trim();
+  if (/^getIntercomDirPath\(\s*(?:agentDir\s*)?\)$/.test(value)) {
+    return { found: true, next: source };
+  }
+  if (value !== "extensionDir" || !source.includes("getIntercomDirPath")) {
+    return { found: false, next: source };
+  }
+  return {
+    found: true,
+    next: source.replace(assignment[0], `${assignment[1]}getIntercomDirPath(), // Do not lock this package directory on Windows.`),
+  };
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -434,16 +455,8 @@ export default async function (pi: ExtensionAPI) {
       };
     }
 
-    if (source.includes(INTERCOM_BROKER_CWD_LINE)) {
-      return {
-        found: true,
-        ok: true,
-        message: `✅ ${PI_INTERCOM_PACKAGE_NAME} broker already uses the update-safe runtime cwd.`,
-      };
-    }
-
-    const packageCwdPattern = /cwd:\s*extensionDir,/;
-    if (!packageCwdPattern.test(source) || !source.includes("getIntercomDirPath")) {
+    const { found, next } = patchPiIntercomBrokerCwdSource(source);
+    if (!found) {
       return {
         found: true,
         ok: false,
@@ -451,10 +464,14 @@ export default async function (pi: ExtensionAPI) {
       };
     }
 
-    const next = source.replace(
-      packageCwdPattern,
-      `${INTERCOM_BROKER_CWD_LINE} // Do not lock this package directory on Windows.`,
-    );
+    if (next === source) {
+      return {
+        found: true,
+        ok: true,
+        message: `✅ ${PI_INTERCOM_PACKAGE_NAME} broker already uses the update-safe runtime cwd.`,
+      };
+    }
+
     await writeFile(spawnPath, next, "utf8");
     return {
       found: true,

@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.87.0",
+  "lastChangelogVersion": "0.87.1",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-astra",
   "llamaServerUrl": "http://127.0.0.1:1234",

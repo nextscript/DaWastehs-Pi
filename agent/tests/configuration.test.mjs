@@ -12,7 +12,7 @@ async function readAgent(path) {
   return readFile(new URL(path, agentUrl), "utf8");
 }
 
-test("compaction remains viable for the llama provider's 128k fallback window", async () => {
+test("compaction remains viable for local models with a 128k context window", async () => {
   const settings = JSON.parse(await readAgent("settings.json"));
   assert.deepEqual(settings.compaction, {
     enabled: true,
@@ -26,8 +26,8 @@ test("compaction remains viable for the llama provider's 128k fallback window", 
     medium: 10_240,
     high: 32_768,
   });
-  assert.equal(settings.modelThinkingLevels["llama-server=http://127.0.0.1:1234/Qwen3.8-27B"], "medium");
-  assert.equal(settings.modelThinkingLevels["llama-server=http://127.0.0.1:1234/Qwen3.8-Flash-Next"], "medium");
+  assert.equal(settings.modelThinkingLevels["autotuner/qwen3.8-27b-ud-q4_k_xl--070c07e1dd"], "medium");
+  assert.equal(settings.modelThinkingLevels["autotuner/qwen3.8-flash-next-ud-q2_k_xl--c2f35f125e"], "medium");
 });
 
 test("custom roles keep model routing in settings as the single source of truth", async () => {

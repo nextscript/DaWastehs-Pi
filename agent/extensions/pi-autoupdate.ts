@@ -47,12 +47,10 @@ import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
-import { patchPiSubagents, patchPiSubagentsHostTools, hasFilesystemSafePiSubagentsAsyncWorkflowId } from "../npm/patches/postinstall.cjs";
+import { patchInstalledExtensionHostPeers, patchPiSubagents, patchPiSubagentsHostTools, hasFilesystemSafePiSubagentsAsyncWorkflowId } from "../npm/patches/postinstall.cjs";
 export { hasFilesystemSafePiSubagentsAsyncWorkflowId };
 
 const LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
-const LLAMA_CPP_PACKAGE_NAME = "pi-llama-cpp";
-const LLAMA_SERVER_URL = "http://127.0.0.1:1234";
 const HERMES_MEMORY_PACKAGE_NAME = "pi-hermes-memory";
 const HEIMDALL_PACKAGE_NAME = "@casualjim/pi-heimdall";
 const PI_INTERCOM_PACKAGE_NAME = "pi-intercom";
@@ -107,20 +105,6 @@ export function updateAuthorizationAllows(
 ): boolean {
   const scopeAllowed = authorization?.scope === "all" || authorization?.scope === scope;
   return !!authorization && scopeAllowed && (!force || authorization.force);
-}
-
-/**
- * Rewrites pi-llama-cpp's fallback server URL in `src/constants.ts`.
- * pi-llama-cpp ≤ 0.9 exported `DEFAULT_LLAMA_SERVER_URL`; 0.10 renamed it to
- * `LLAMA_SERVER_URL`. Both spellings are accepted and the name found is kept.
- * Returns `found: false` when neither constant is present (upstream changed
- * again); the caller then leaves the file alone.
- */
-export function patchLlamaServerUrlSource(source: string, url: string): { found: boolean; next: string } {
-  const pattern = /export const (DEFAULT_LLAMA_SERVER_URL|LLAMA_SERVER_URL)\s*=\s*["']http:\/\/127\.0\.0\.1:\d+["'];/;
-  const match = pattern.exec(source);
-  if (!match) return { found: false, next: source };
-  return { found: true, next: source.replace(pattern, `export const ${match[1]} = "${url}";`) };
 }
 
 /**
@@ -253,101 +237,6 @@ export default async function (pi: ExtensionAPI) {
       if ((err as { code?: string }).code === "ENOENT") return {};
       throw err;
     }
-  }
-
-  /** Keep Pi's global llama.cpp server setting on LM Studio's OpenAI-compatible port. */
-  async function ensureGlobalLlamaServerUrl(): Promise<string> {
-    const settingsPath = join(getAgentDir(), "settings.json");
-    const settings = await readJsonObject(settingsPath);
-
-    if (settings.llamaServerUrl === LLAMA_SERVER_URL) {
-      return `✅ Global llamaServerUrl already set to ${LLAMA_SERVER_URL}.`;
-    }
-
-    settings.llamaServerUrl = LLAMA_SERVER_URL;
-    await mkdir(dirname(settingsPath), { recursive: true });
-    await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-    return `✅ Set global llamaServerUrl to ${LLAMA_SERVER_URL}.`;
-  }
-
-  /** Candidate pi-llama-cpp package roots that may have been refreshed by `pi update`. */
-  function llamaCppPackageRoots(cwd: string): string[] {
-    const roots = [
-      join(getAgentDir(), "npm", "node_modules", LLAMA_CPP_PACKAGE_NAME),
-      join(cwd, ".pi", "npm", "node_modules", LLAMA_CPP_PACKAGE_NAME),
-    ];
-    return [...new Set(roots)];
-  }
-
-  /** Re-apply the local pi-llama-cpp fallback-port patch that package updates overwrite. */
-  async function patchLlamaCppDefaultUrl(packageRoot: string): Promise<{ found: boolean; ok: boolean; message?: string }> {
-    const constantsPath = join(packageRoot, "src", "constants.ts");
-
-    let source: string;
-    try {
-      source = await readFile(constantsPath, "utf8");
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === "ENOENT") return { found: false, ok: true };
-      return {
-        found: true,
-        ok: false,
-        message: `⚠️ Could not read ${constantsPath}: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-
-    const { found, next } = patchLlamaServerUrlSource(source, LLAMA_SERVER_URL);
-    if (!found) {
-      // Not fatal: pi-llama-cpp still honours the global `llamaServerUrl`
-      // setting, which ensureGlobalLlamaServerUrl() keeps on port 1234.
-      return {
-        found: true,
-        ok: true,
-        message: `ℹ️ No fallback server URL constant found in ${constantsPath}; the global llamaServerUrl setting still applies.`,
-      };
-    }
-
-    if (next === source) {
-      return { found: true, ok: true, message: `✅ ${LLAMA_CPP_PACKAGE_NAME} fallback already uses ${LLAMA_SERVER_URL}.` };
-    }
-
-    try {
-      await writeFile(constantsPath, next, "utf8");
-      return { found: true, ok: true, message: `✅ Patched ${constantsPath} to ${LLAMA_SERVER_URL}.` };
-    } catch (err: unknown) {
-      return {
-        found: true,
-        ok: false,
-        message: `⚠️ Could not write ${constantsPath}: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
-
-  /** Reset llama.cpp/LM Studio integration to port 1234 after package updates. */
-  async function ensureLlamaCppPort1234(cwd: string): Promise<{ ok: boolean; text: string }> {
-    const messages: string[] = [];
-    let ok = true;
-
-    try {
-      messages.push(await ensureGlobalLlamaServerUrl());
-    } catch (err: unknown) {
-      ok = false;
-      messages.push(`⚠️ Could not set global llamaServerUrl: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    let foundPackage = false;
-    for (const root of llamaCppPackageRoots(cwd)) {
-      const patch = await patchLlamaCppDefaultUrl(root);
-      if (!patch.found) continue;
-      foundPackage = true;
-      if (!patch.ok) ok = false;
-      if (patch.message) messages.push(patch.message);
-    }
-
-    if (!foundPackage) {
-      messages.push(`ℹ️ ${LLAMA_CPP_PACKAGE_NAME} was not found in global/project npm packages.`);
-    }
-
-    return { ok, text: messages.join("\n") };
   }
 
   function piNpmRoots(cwd: string): string[] {
@@ -1124,12 +1013,28 @@ export default async function (pi: ExtensionAPI) {
   // repairs run only inside an explicitly authorized update. Clean installs get
   // the subagent compatibility repair from the tracked npm postinstall hook.
 
+  async function ensureExtensionHostPeers(cwd: string): Promise<{ ok: boolean; text: string }> {
+    const messages: string[] = [];
+    let ok = true;
+    for (const npmRoot of piNpmRoots(cwd)) {
+      try {
+        for (const patch of patchInstalledExtensionHostPeers(npmRoot)) {
+          if (patch.changed) messages.push(`✅ Host-provided modules declared as wildcard peers (${patch.path}): ${patch.repaired?.join(", ") ?? ""}.`);
+        }
+      } catch (err: unknown) {
+        ok = false;
+        messages.push(`⚠️ Could not repair extension host peers in ${npmRoot}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { ok, text: messages.join("\n") || "✅ Extension host peer declarations are compatible." };
+  }
+
   async function ensurePostUpdatePackagePatches(
     cwd: string,
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; text: string }> {
     signal?.throwIfAborted();
-    const llama = await ensureLlamaCppPort1234(cwd);
+    const peers = await ensureExtensionHostPeers(cwd);
     signal?.throwIfAborted();
     const pixPretty = await ensurePixPrettyIconCatalog(cwd, signal);
     signal?.throwIfAborted();
@@ -1144,8 +1049,8 @@ export default async function (pi: ExtensionAPI) {
     const heimdall = await ensureHeimdallSandboxForPlatform();
     signal?.throwIfAborted();
     return {
-      ok: llama.ok && pixPretty.ok && pix.ok && hermes.ok && intercom.ok && subagents.ok && heimdall.ok,
-      text: `${LLAMA_CPP_PACKAGE_NAME}:\n${llama.text}\n\n@xynogen/pix-pretty:\n${pixPretty.text}\n\n@xynogen/pix-optimizer:\n${pix.text}\n\n${HERMES_MEMORY_PACKAGE_NAME}:\n${hermes.text}\n\n${PI_INTERCOM_PACKAGE_NAME}:\n${intercom.text}\n\n${PI_SUBAGENTS_PACKAGE_NAME}:\n${subagents.text}\n\n${HEIMDALL_PACKAGE_NAME}:\n${heimdall.text}`,
+      ok: peers.ok && pixPretty.ok && pix.ok && hermes.ok && intercom.ok && subagents.ok && heimdall.ok,
+      text: `Extension host peers:\n${peers.text}\n\n@xynogen/pix-pretty:\n${pixPretty.text}\n\n@xynogen/pix-optimizer:\n${pix.text}\n\n${HERMES_MEMORY_PACKAGE_NAME}:\n${hermes.text}\n\n${PI_INTERCOM_PACKAGE_NAME}:\n${intercom.text}\n\n${PI_SUBAGENTS_PACKAGE_NAME}:\n${subagents.text}\n\n${HEIMDALL_PACKAGE_NAME}:\n${heimdall.text}`,
     };
   }
 
@@ -1509,7 +1414,7 @@ export default async function (pi: ExtensionAPI) {
     description:
       "Update pi and/or its installed packages (extensions, skills, prompts, themes) via the pi CLI. " +
       "`scope` selects what to update: 'all' (default) updates pi and packages, 'self' only pi, " +
-      "'extensions' only packages. On Windows, pi-intercom's detached broker is paused and its respawn lock is held while npm replaces the package, avoiding EBUSY. After package updates, pi-llama-cpp is reset to http://127.0.0.1:1234, @xynogen/pix-pretty is refreshed if pix-optimizer needs its icon catalog, pi-subagents async workflow IDs are kept Windows-safe and tool planning preserves registered builtin overrides plus declared extension tools, the Heimdall sandbox is enabled on Linux and disabled on Windows/non-Linux, and known overwritten local package patches are re-applied. " +
+      "'extensions' only packages. On Windows, pi-intercom's detached broker is paused and its respawn lock is held while npm replaces the package, avoiding EBUSY. After package updates, host-provided modules are normalized to wildcard peerDependencies in extension manifests, @xynogen/pix-pretty is refreshed if pix-optimizer needs its icon catalog, pi-subagents async workflow IDs are kept Windows-safe and tool planning preserves registered builtin overrides plus declared extension tools, the Heimdall sandbox is enabled on Linux and disabled on Windows/non-Linux, and known overwritten local package patches are re-applied. " +
       "Packages whose latest npm version is unresolvable by npm (e.g. published with an unresolved `workspace:*` dependency) are detected via a registry pre-flight and skipped, updating the rest individually, so a single broken upstream release never blocks other updates. " +
       "`check=true` reports whether a pi update is available without installing (package update availability is " +
       "surfaced by pi at startup; there is no dry-run for it). A direct, scope-matching user request authorizes one update without a redundant popup. " +

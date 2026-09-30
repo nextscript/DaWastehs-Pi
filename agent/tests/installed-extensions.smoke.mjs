@@ -25,6 +25,7 @@ try {
  await loader.reload();
  const loaded = loader.getExtensions();
  assert.deepEqual(loaded.errors, [], "extension load failures");
+ assert.deepEqual(loaded.warnings ?? [], [], "extension package warnings");
  const paths = loaded.extensions.map((ext) => resolve(ext.path));
  for (const name of ["alarm-sound.ts", "autotuner.ts", "pi-autoupdate.ts", "post-edit-validation.ts", "skill-governor/index.ts", "stargate-header.ts", "token-speed.ts"]) {
   assert.ok(paths.includes(resolve(agentDir, "extensions", name)), `local extension missing: ${name}`);
@@ -69,6 +70,7 @@ try {
  // Verify rebind/reload too; cached parents are a common source of false passes.
  await session.reload();
  assert.deepEqual(loader.getExtensions().errors, [], "reload load failures");
+ assert.deepEqual(loader.getExtensions().warnings ?? [], [], "reload package warnings");
  assert.deepEqual(errors, [], "extension lifecycle errors");
  console.log(JSON.stringify({ pi: VERSION, extensions: paths.map((path) => relative(agentDir, path)), tools: tools.length, lifecycle: "startup/reload/shutdown", checks: ["package entries", "tool registry", "subagent/todo/goal/intercom read-only tools", "child tools/ceilings/exclusions"], errors }, null, 2));
 } finally {

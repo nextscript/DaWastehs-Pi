@@ -15,10 +15,9 @@
     "pi-goal-x": "^0.31.9",
     "pi-hermes-memory": "^0.9.9",
     "pi-intercom": "^0.15.0",
-    "pi-llama-cpp": "^0.15.0",
-    "pi-mcp-adapter": "^3.0.0",
+    "pi-mcp-adapter": "^3.3.0",
     "pi-prompt-template-model": "^0.12.3",
-    "pi-subagents": "^0.72.1",
-    "pi-web-access": "^0.32.0"
+    "pi-subagents": "^0.73.1",
+    "pi-web-access": "^0.34.0"
   }
 }

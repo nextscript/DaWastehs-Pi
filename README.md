@@ -101,6 +101,19 @@ tracked repair; unknown discovery implementations are reported as failures
 rather than silently overwritten. Merely starting Pi performs no package-source
 or OS-config mutation.
 
+Since v3.5, the same install/update hook also repairs host-module declarations
+in managed npm extension manifests: Pi's runtime modules belong in
+`peerDependencies` with a `"*"` range, not `dependencies` or
+`optionalDependencies`. This fixes the Hermes `pi-tui` and rpiv `typebox`
+startup warnings and normalizes existing host-peer ranges. The repair covers
+scoped and unscoped extension packages in user/project npm roots, is idempotent,
+and leaves ordinary libraries, shared transitive installations, unrelated
+runtime dependencies and optional-peer metadata untouched. The lockfile retains
+upstream package metadata; `npm ci` reapplies the repair via postinstall before
+first load. `/update` reapplies it after package replacement; `/update self`
+does not touch extension manifests. There is no longer any llama-provider port
+patch or `llamaServerUrl` rewrite.
+
 #### Upstream-publish-bug resilience
 
 Occasionally a package is published to npm with an unresolved `workspace:*`
@@ -317,7 +330,6 @@ otherwise keep one writer.
 Declared in `settings.json` (and/or user settings). See each package upstream
 for details:
 
-- `pi-llama-cpp` — local llama.cpp provider/model integration
 - `pi-mcp-adapter`, `pi-web-access` — MCP and web tools
 - `pi-hermes-memory` — durable memory policy/store
 - `pi-subagents`, `pi-intercom` — child-agent and peer-session coordination
@@ -422,13 +434,13 @@ success claim. No source reviewed for v2.7 established a reliable
 family-specific prompt advantage, so separate Gemma/Mistral/Qwen prose profiles
 would add unsupported complexity.
 
-Local models are normally selected through the `autotuner` provider (see
-`autotuner.ts`); `llamaServerUrl` stays on port 1234 because that is where
-AutoTuner starts llama-server, so the direct `llama-server` provider remains a
-manual fallback. pi-llama-cpp 0.10 renamed its fallback constant from
-`DEFAULT_LLAMA_SERVER_URL` to `LLAMA_SERVER_URL` and still honours the legacy
-`llamaServerUrl` setting; since v2.9 the post-update patch accepts both names
-and reports a missing constant as information rather than as a warning.
+Local models are selected exclusively through the independent `autotuner`
+provider (see `autotuner.ts`). v3.5 removes the redundant `pi-llama-cpp` Pi
+extension, its direct-provider thinking aliases, `llamaServerUrl`, and the
+updater's fallback-port patch. This removes the unreachable-server startup
+warning and the second model/control path. AutoTuner's model catalog, loading,
+readiness checks, proxy, runtime selection and thinking budgets are unchanged.
+**llama.cpp itself remains required** and continues to be managed by AutoTuner.
 
 ### Global engineering guideline: Ponytail
 
@@ -542,6 +554,46 @@ The runtime dependency audit still reports **two pre-existing findings**:
 `hono` 4.13.1 (moderate) and `smol-toml` 1.7.0 (high). The v3.0 lockfile produces
 the same findings; this scoped repair does not remediate them. The editor-only
 production audit reports zero findings.
+
+#### v3.5: AutoTuner-only local models and warning-free host peers
+
+Remove `pi-llama-cpp` from Pi settings, the runtime manifest and lockfile;
+remove its stale settings/thinking aliases and all updater port-1234 patches.
+The separate AutoTuner provider remains intact; no llama.cpp binary or
+AutoTuner configuration is removed.
+
+Fix the Hermes `@earendil-works/pi-tui` and rpiv todo/questionnaire `typebox`
+manifest warnings with a shared tracked postinstall/update repair. Host modules
+are wildcard peers, not bundled runtime dependencies. Ordinary library
+manifests are not rewritten. Preserve Windows intercom maintenance locking,
+recovery-before-unlock, cancellation, subagent compatibility checks, pix,
+Hermes notification and Heimdall repairs.
+
+Capture the already-installed `pi-mcp-adapter` **3.3.0**, `pi-subagents`
+**0.73.1**, `pi-web-access` **0.34.0**, and Pi settings **0.99.1**. Align
+editor/test SDK dependencies to Pi **0.99.1**. Include the pending Math
+Predictor calculator-only skill with the manual/high-risk governance metadata
+required by skill lint; its procedure is unchanged.
+
+Validation: **92 unit tests**, typecheck and skill lint (zero errors) pass.
+Both the local SDK and global Pi **0.99.1** load all **21 extension entry
+points**, expose **49 tools**, and pass startup/reload/shutdown with **no
+extension package warnings or lifecycle errors**. An isolated lockfile-driven
+`npm ci` runs the real postinstall hook and a second pass changes nothing.
+Fresh updater tool and slash-command tests use a stub Pi executable: they
+repair global/project manifests without restoring llama settings, while self
+updates leave manifests alone. No real package upgrade or live GPU/model run
+is performed as a test; the AutoTuner tests use a recording fake gateway.
+The SDK smoke can emit pi-subagents' separate conservative host-verification
+notice (it keeps delegation available); this is not an extension load failure.
+
+Additional npm audit: the runtime tree still has five findings (three moderate,
+two high: brace-expansion, fast-uri, ip-address, undici and its pi-subagents
+parent); the editor tree has one high brace-expansion finding. No forced
+package downgrade or unrelated security migration is included in this release.
+Run `/reload` or restart Pi to unload the removed provider and refresh package
+warnings; `node agent/npm/patches/postinstall.cjs` repairs an existing checkout
+without upgrading any package.
 
 #### v3.4: Recognize pi-intercom's upstream update-safe launcher
 

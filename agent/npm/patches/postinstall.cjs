@@ -3,6 +3,74 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+// Pi supplies these runtime modules. Keep installed extension manifests aligned
+// with the host contract; never rewrite ordinary/transitive library manifests.
+const HOST_PROVIDED_EXTENSION_PACKAGES = [
+  "@earendil-works/pi-agent-core", "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox",
+];
+
+function patchExtensionHostPeers(packageRoot) {
+  const target = path.join(packageRoot, "package.json");
+  let source;
+  try {
+    source = fs.readFileSync(target, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return { found: false, changed: false, path: target };
+    throw error;
+  }
+  const manifest = JSON.parse(source.replace(/^\uFEFF/, ""));
+  if (!Array.isArray(manifest.pi?.extensions) || manifest.pi.extensions.length === 0) {
+    return { found: false, changed: false, path: target };
+  }
+  const repaired = [];
+  for (const name of HOST_PROVIDED_EXTENSION_PACKAGES) {
+    const dependency = Object.hasOwn(manifest.dependencies ?? {}, name);
+    const optional = Object.hasOwn(manifest.optionalDependencies ?? {}, name);
+    const peer = Object.hasOwn(manifest.peerDependencies ?? {}, name);
+    if (!dependency && !optional && !peer) continue;
+    if (!dependency && !optional && manifest.peerDependencies[name] === "*") continue;
+    if (dependency) delete manifest.dependencies[name];
+    if (optional) delete manifest.optionalDependencies[name];
+    manifest.peerDependencies ??= {};
+    manifest.peerDependencies[name] = "*";
+    repaired.push(name);
+  }
+  if (repaired.length > 0) {
+    const indent = source.match(/\n([\t ]+)"/)?.[1] ?? "  ";
+    const eol = source.includes("\r\n") ? "\r\n" : "\n";
+    const bom = source.startsWith("\uFEFF") ? "\uFEFF" : "";
+    fs.writeFileSync(target, bom + (JSON.stringify(manifest, null, indent) + "\n").replaceAll("\n", eol), "utf8");
+  }
+  return { found: true, changed: repaired.length > 0, path: target, repaired };
+}
+
+function patchInstalledExtensionHostPeers(npmRoot = path.join(__dirname, "..")) {
+  const modules = path.join(npmRoot, "node_modules");
+  let entries;
+  try {
+    entries = fs.readdirSync(modules, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  const results = [];
+  for (const entry of entries) {
+    // Do not follow links outside the managed npm tree or inspect .bin/.cache.
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const root = path.join(modules, entry.name);
+    const roots = entry.name.startsWith("@")
+      ? fs.readdirSync(root, { withFileTypes: true })
+          .filter((child) => child.isDirectory()).map((child) => path.join(root, child.name))
+      : [root];
+    for (const packageRoot of roots) {
+      const result = patchExtensionHostPeers(packageRoot);
+      if (result.found) results.push(result);
+    }
+  }
+  return results;
+}
+
 /** Published packages use JS since 0.68; source checkouts still use TS.
  * Prefer executable JS, never declarations or source maps. Missing source in an
  * installed package is an unsupported layout, not an absent package.
@@ -144,6 +212,9 @@ function patchPiSubagentsHostTools(packageRoot = path.join(__dirname, "..", "nod
 }
 
 if (require.main === module) {
+  for (const peers of patchInstalledExtensionHostPeers()) {
+    if (peers.changed) console.log(`Extension host peers: repaired ${peers.repaired.join(", ")} (${peers.path}).`);
+  }
   const result = patchPiSubagents();
   if (result.found) {
     console.log(`pi-subagents async workflow IDs: ${result.changed ? "patched" : "filesystem-safe"} (${result.path}).`);
@@ -154,4 +225,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { resolvePiSubagentsSource, hasFilesystemSafePiSubagentsAsyncWorkflowId, hasNativePiSubagentsToolPlan, patchPiSubagents, patchPiSubagentsHostToolSource, patchPiSubagentsBuiltinPruningSource, patchPiSubagentsHostTools };
+module.exports = { HOST_PROVIDED_EXTENSION_PACKAGES, patchExtensionHostPeers, patchInstalledExtensionHostPeers, resolvePiSubagentsSource, hasFilesystemSafePiSubagentsAsyncWorkflowId, hasNativePiSubagentsToolPlan, patchPiSubagents, patchPiSubagentsHostToolSource, patchPiSubagentsBuiltinPruningSource, patchPiSubagentsHostTools };
